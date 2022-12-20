@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+function typeof () {
+    filename=$1
+    
+    # add new filetypes here
+    
+    case $filename in
+        *.pl | *.pm ) echo perl; exit ;;
+        *.json ) echo json; exit ;;
+        *.tmpl | *.tt ) echo template; exit ;;
+        *.t ) echo test; exit ;;
+        *.sh ) echo bash; exit ;; # probably, anyway :D
+        # *.js ) echo javascript; exit;; # need to install jsl on dev2
+    esac
+    
+    # careful here, as etc/client/ contains apache .conf :D
+    if [ $(dirname $filename) == 'etc' ] # first level only
+    then
+        # config file
+        case $filename in
+            *.conf ) echo 123conf; exit ;;
+        esac
+    fi
+
+    # for files with no extension, lets look at the shbang line
+    shbang=$(head -1 $1)
+    case $shbang in
+        '#!'*perl )
+            echo perl; exit ;;
+        '#!'*bash )
+            echo bash; exit ;;
+    esac
+
+    echo "unhandled";
+}
+
+if git rev-parse --verify HEAD >/dev/null 2>&1
+then
+	against=HEAD
+else
+	# Initial commit: diff against an empty tree object
+	against=$(git hash-object -t tree /dev/null)
+fi
+
+badFiles=""
+
+# if you change this to $(some git command) | while (whatever)
+# remember that the shell variables in the while loop are
+# in a different process, and you will not be able to access
+# them outside of it without significant shell hackery.
+
+for file in $(git diff --cached --name-only $against)
+do
+    # bit of a hack, but it'll do
+    if [ $(git status --porcelain $file | sed -e "s;$file;;" | sed -e 's/ //g' ) == "D" ]
+    then 
+        echo ">>> pre-commit: skipping deleted file $file"; continue
+    fi
+
+    type=$(typeof "$file")
+    if [ 'unhandled' == $type ] 
+    then
+        echo ">>> pre-commit: skipping unhandled file $file"; continue
+    fi
+
+    echo ">>> pre-commit: checking $type file $file"
+    BAD=false
+    case $type in
+        # file type detected in function typeof above
+        test )
+            # we could fall through and syntax check the Perl, but trying to run it
+            # will essentially do that anyway :D
+            prove $file || BAD=true
+            ;;
+        perl )
+            perl -cw $file || BAD=true
+            ;;      
+        json )
+            json_pp -t null < $file && echo "JSON syntax OK" || BAD=true
+            ;;
+        123conf )
+            # strip out comments
+            grep -v -E '^ *#' $file | json_pp -t null  && echo "123 Config syntax OK: consider running t/etc.t" || BAD=true
+            ;;
+        bash )
+            # note this WILL NOT check external commands missing from your PATH
+            bash -n $file && echo "Bash syntax OK" || BAD=true
+            ;;
+        template ) # not yet released to 123-main
+            ${NEW_DIR}/bin/dev/check_template $file || BAD=true
+            ;;
+        # javascript ) # need to install jsl
+        #     jsl -nologo -nofilelisting -nosummary -nocontext -process $file || BAD=true
+        #     ;;
+        * )
+            echo "detected but unhandled file type $type: assume OK"
+            ;;
+    esac
+
+    if $BAD
+    then
+        if [ -z $badFiles ]
+        then
+            badFiles=$file
+        else
+            badFiles="$badFiles;$file"
+        fi
+    fi
+done
+if [ -z "$badFiles" ]
+then
+    echo ">>> pre-commit: all files OK"
+    exit 0;
+else
+    echo
+    echo '>>> pre-commit: ### Aborting commit.  Failed checks: ###'
+    for file in $(echo $badFiles | tr ';' ' ')
+    do
+        echo "    $file"
+    done
+    echo
+    echo "If you are ABSOLUTELY 100% sure that you can skip these pre-commit tests, add:";
+    echo "       --no-verify";
+    echo "to your last command to skip them, and indicate clearly you have done so in the PR.";
+    exit 1;
+fi
