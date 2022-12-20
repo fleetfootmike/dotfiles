@@ -79,20 +79,10 @@ do
         json )
             json_pp -t null < $file && echo "JSON syntax OK" || BAD=true
             ;;
-        123conf )
-            # strip out comments
-            grep -v -E '^ *#' $file | json_pp -t null  && echo "123 Config syntax OK: consider running t/etc.t" || BAD=true
-            ;;
         bash )
             # note this WILL NOT check external commands missing from your PATH
             bash -n $file && echo "Bash syntax OK" || BAD=true
             ;;
-        template ) # not yet released to 123-main
-            ${NEW_DIR}/bin/dev/check_template $file || BAD=true
-            ;;
-        # javascript ) # need to install jsl
-        #     jsl -nologo -nofilelisting -nosummary -nocontext -process $file || BAD=true
-        #     ;;
         * )
             echo "detected but unhandled file type $type: assume OK"
             ;;
