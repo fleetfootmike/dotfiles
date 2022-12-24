@@ -3,6 +3,17 @@ if [ -f /etc/bashrc ]; then
         . /etc/bashrc
 fi
 
+# enable programmable completion features (you don't need to enable
+# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
+# sources /etc/bash.bashrc).
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+
 # give me longrunning sessions or give me death
 unset TMOUT
 
@@ -11,6 +22,7 @@ parse_git_branch() {
 }
 
 export PS1="\u@\[\033[32m\]\h \[\033[34m\]\w\[\033[36m\] <${PERLBREW_PERL:-system perl}>\[\033[31m\]\$(parse_git_branch)\[\033[00m\] $ "
+export PATH=~/bin:$PATH
 
 # User specific aliases and functions
 # Auto-screen invocation. see: http://taint.org/wk/RemoteLoginAutoScreen
