@@ -21,7 +21,7 @@ parse_git_branch() {
     git branch 2> /dev/null  | awk '/^*/ { print (length($2) >20) ? " (" substr($2,0,17) "...)" : " (" $2 ")"}'
 }
 
-export PS1="\u@\[\033[32m\]\h:\[\033[34m\]\w\[\033[36m\] <${PERLBREW_PERL:-system perl}>\[\033[31m\]\$(parse_git_branch)\[\033[00m\] $ "
+export PS1='\u@\[\033[32m\]\h \[\033[34m\]\w\[\033[36m\] <${PERLBREW_PERL:-system perl}>\[\033[31m\]$(parse_git_branch)\[\033[00m\] \$ '
 
 # User specific aliases and functions
 # Auto-screen invocation. see: http://taint.org/wk/RemoteLoginAutoScreen
