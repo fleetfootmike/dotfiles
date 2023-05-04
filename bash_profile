@@ -1,7 +1,9 @@
 umask 002
 
 export PATH="$HOME/bin:$PATH"
-source ~/perl5/perlbrew/etc/bashrc
+if [ -x ~/perl5/perlbrew/etc/bashrc ]; then
+    source ~/perl5/perlbrew/etc/bashrc
+fi
 
 # if running bash
 if [ -n "$BASH_VERSION" ]; then
