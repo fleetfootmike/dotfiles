@@ -1,6 +1,11 @@
 # Source global definitions
 if [ -f /etc/bashrc ]; then
-        . /etc/bashrc
+    . /etc/bashrc
+fi
+
+# source aliases
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
 fi
 
 # enable programmable completion features (you don't need to enable
@@ -22,6 +27,9 @@ parse_git_branch() {
 }
 
 export PS1='\u@\[\033[32m\]\h \[\033[34m\]\w\[\033[36m\] <${PERLBREW_PERL:-system perl}>\[\033[31m\]$(parse_git_branch)\[\033[00m\] \$ '
+
+# determine which Term::Readline implementation to use
+export PERL_RL=Perl5
 
 # User specific aliases and functions
 # Auto-screen invocation. see: http://taint.org/wk/RemoteLoginAutoScreen
