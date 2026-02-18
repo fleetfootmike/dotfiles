@@ -2,26 +2,18 @@
 
 function typeof () {
     filename=$1
-    
+
     # add new filetypes here
-    
+
     case $filename in
         *.pl | *.pm ) echo perl; exit ;;
         *.json ) echo json; exit ;;
         *.tmpl | *.tt ) echo template; exit ;;
         *.t ) echo test; exit ;;
         *.sh ) echo bash; exit ;; # probably, anyway :D
-        # *.js ) echo javascript; exit;; # need to install jsl on dev2
+        *.yml | *.yaml ) echo yaml; exit;;
+        # *.js ) echo javascript; exit;;
     esac
-    
-    # careful here, as etc/client/ contains apache .conf :D
-    if [ $(dirname $filename) == 'etc' ] # first level only
-    then
-        # config file
-        case $filename in
-            *.conf ) echo 123conf; exit ;;
-        esac
-    fi
 
     # for files with no extension, lets look at the shbang line
     shbang=$(head -1 $1)
@@ -34,6 +26,11 @@ function typeof () {
 
     echo "unhandled";
 }
+
+if [ -f cpanfile ]
+then
+    carton="carton exec"
+fi
 
 if git rev-parse --verify HEAD >/dev/null 2>&1
 then
@@ -54,12 +51,12 @@ for file in $(git diff --cached --name-only $against)
 do
     # bit of a hack, but it'll do
     if [ $(git status --porcelain $file | sed -e "s;$file;;" | sed -e 's/ //g' ) == "D" ]
-    then 
+    then
         echo ">>> pre-commit: skipping deleted file $file"; continue
     fi
 
     type=$(typeof "$file")
-    if [ 'unhandled' == $type ] 
+    if [ 'unhandled' == $type ]
     then
         echo ">>> pre-commit: skipping unhandled file $file"; continue
     fi
@@ -71,17 +68,20 @@ do
         test )
             # we could fall through and syntax check the Perl, but trying to run it
             # will essentially do that anyway :D
-            prove $file || BAD=true
+            $carton prove -l $file || BAD=true
             ;;
         perl )
-            perl -cw $file || BAD=true
-            ;;      
+            $carton perl -cw $file || BAD=true
+            ;;
         json )
             json_pp -t null < $file && echo "JSON syntax OK" || BAD=true
             ;;
         bash )
             # note this WILL NOT check external commands missing from your PATH
             bash -n $file && echo "Bash syntax OK" || BAD=true
+            ;;
+        yaml )
+            yamllint $file
             ;;
         * )
             echo "detected but unhandled file type $type: assume OK"
