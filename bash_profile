@@ -1,5 +1,6 @@
 umask 002
 
+export PAGER=more # less can DIAF.
 export PATH="$HOME/bin:$PATH"
 if [ -x ~/perl5/perlbrew/etc/bashrc ]; then
     source ~/perl5/perlbrew/etc/bashrc
