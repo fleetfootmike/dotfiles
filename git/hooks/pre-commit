@@ -1,5 +1,23 @@
 #!/usr/bin/env bash
 
+CARTON=""
+# this may potentially set $PERL5LIB and $CARTON
+if [ -e .perlenv ]
+then
+  .  .perlenv
+elif [ -e ~/.perlenv ]
+then
+    . ~/.perlenv
+fi
+
+# need tty interaction
+exec < /dev/tty
+
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
 function typeof () {
     filename=$1
 
@@ -12,6 +30,7 @@ function typeof () {
         *.t ) echo test; exit ;;
         *.sh ) echo bash; exit ;; # probably, anyway :D
         *.yml | *.yaml ) echo yaml; exit;;
+        # *.sql ) echo sql; exit;;
         # *.js ) echo javascript; exit;;
     esac
 
@@ -27,9 +46,35 @@ function typeof () {
     echo "unhandled";
 }
 
-if [ -f cpanfile ]
-then
-    carton="carton exec"
+function validate_yaml () {
+    # requires yamllint
+    filename=$1
+    if yamllint $file
+    then
+        exit 0
+    else
+        # some Ansible and Git YAML has decidedly iffy formatting
+        while true; do
+            echo -e "${RED}???${NC} pre-commit: Do you wish to commit this YAML file anyway? " yn
+            case $yn in
+                [Yy]* ) exit 0 ;;
+                [Nn]* ) exit 1 ;;
+                * ) echo "${RED}???${NC} pre-commit: Please answer yes or no.";;
+            esac
+        done
+    fi
+}
+
+function validate_sql () {
+    echo "${BLUE}###${NC} Can't validate SQL yet!"
+    exit 0
+}
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$branch" = "master" ] || [ "$branch" = "main" ]; then
+    echo -e "${RED}!!!${NC} pre-commit: ${RED}###${NC} Aborting commit. You can't commit directly to $branch branch. ${RED}###${NC}"
+    exit 1
 fi
 
 if git rev-parse --verify HEAD >/dev/null 2>&1
@@ -52,26 +97,26 @@ do
     # bit of a hack, but it'll do
     if [ $(git status --porcelain $file | sed -e "s;$file;;" | sed -e 's/ //g' ) == "D" ]
     then
-        echo ">>> pre-commit: skipping deleted file $file"; continue
+        echo -e "${BLUE}>>>${NC} pre-commit: skipping deleted file $file"; continue
     fi
 
     type=$(typeof "$file")
     if [ 'unhandled' == $type ]
     then
-        echo ">>> pre-commit: skipping unhandled file $file"; continue
+        echo -e "${BLUE}>>>${NC} pre-commit: skipping unhandled file $file"; continue
     fi
 
-    echo ">>> pre-commit: checking $type file $file"
+    echo -e "${BLUE}>>>${NC} pre-commit: checking $type file $file"
     BAD=false
     case $type in
         # file type detected in function typeof above
         test )
             # we could fall through and syntax check the Perl, but trying to run it
             # will essentially do that anyway :D
-            $carton prove -l $file || BAD=true
+            $CARTON prove -l $file || BAD=true
             ;;
         perl )
-            $carton perl -cw $file || BAD=true
+            $CARTON perl -Ilib -cw $file || BAD=true
             ;;
         json )
             json_pp -t null < $file && echo "JSON syntax OK" || BAD=true
@@ -81,8 +126,10 @@ do
             bash -n $file && echo "Bash syntax OK" || BAD=true
             ;;
         yaml )
-            yamllint $file
+            validate_yaml $file && echo "YAML syntax OK" || BAD=true
             ;;
+        # sql )
+        #    validate sql $file && echo "SQL syntax OK" || BAD=true
         * )
             echo "detected but unhandled file type $type: assume OK"
             ;;
@@ -98,20 +145,25 @@ do
         fi
     fi
 done
+if [ -n "$DB_CREATED" ]
+then
+    mysql  -B -e "DROP DATABASE IF EXISTS $DB";
+fi
+
 if [ -z "$badFiles" ]
 then
-    echo ">>> pre-commit: all files OK"
+    echo -e "${GREEN}+++${NC} pre-commit: all files OK"
     exit 0;
 else
     echo
-    echo '>>> pre-commit: ### Aborting commit.  Failed checks: ###'
+    echo -e "${RED}!!!${NC} pre-commit: ${RED}###${NC} Aborting commit.  Failed checks: ${RED}###${NC}"
     for file in $(echo $badFiles | tr ';' ' ')
     do
         echo "    $file"
     done
     echo
-    echo "If you are ABSOLUTELY 100% sure that you can skip these pre-commit tests, add:";
+    echo -e "${RED}!!!${NC} pre-commit: If you are ${RED}ABSOLUTELY${NC} 100% sure that you can skip these pre-commit tests, add:";
     echo "       --no-verify";
-    echo "to your last command to skip them, and indicate clearly you have done so in the PR.";
+    echo -e "to your last command to skip them, and ${BLUE}indicate clearly${NC} you have done so in the PR.";
     exit 1;
 fi
