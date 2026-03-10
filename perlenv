@@ -1,0 +1,5 @@
+# example .perlenv
+
+# if your perl env requires carton
+export CARTON="carton exec "
+export PERL5LIB=./lib:./t/lib:$PERL5LIB
