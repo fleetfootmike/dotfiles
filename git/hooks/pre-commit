@@ -55,7 +55,7 @@ function validate_yaml () {
     else
         # some Ansible and Git YAML has decidedly iffy formatting
         while true; do
-            echo -e "${RED}???${NC} pre-commit: Do you wish to commit this YAML file anyway? " yn
+            echo -e -n "${RED}???${NC} pre-commit: Do you wish to commit this YAML file anyway? "; read yn
             case $yn in
                 [Yy]* ) exit 0 ;;
                 [Nn]* ) exit 1 ;;
