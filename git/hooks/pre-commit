@@ -23,15 +23,17 @@ function typeof () {
 
     # add new filetypes here
 
-    case $filename in
+    case $(basename $filename) in
         *.pl | *.pm ) echo perl; exit ;;
         *.json ) echo json; exit ;;
         *.tmpl | *.tt ) echo template; exit ;;
         *.t ) echo test; exit ;;
         *.sh ) echo bash; exit ;; # probably, anyway :D
         *.yml | *.yaml ) echo yaml; exit;;
-        # *.sql ) echo sql; exit;;
+        *.md ) echo md; exit;;
+        *.sql ) echo sql; exit;;
         # *.js ) echo javascript; exit;;
+        Dockerfile*) echo dockerfile; exit;;
     esac
 
     # for files with no extension, lets look at the shbang line
@@ -126,10 +128,19 @@ do
             bash -n $file && echo "Bash syntax OK" || BAD=true
             ;;
         yaml )
+            # note this is a bit picky, so it will prompt you as to whether you
+            # are happy or not.
             validate_yaml $file && echo "YAML syntax OK" || BAD=true
             ;;
-        # sql )
-        #    validate sql $file && echo "SQL syntax OK" || BAD=true
+        md )
+            markdownlint $file || BAD=true
+            ;;
+        sql )
+            validate_sql $file && echo "SQL syntax presumed OK" || BAD=true
+            ;;
+        dockerfile )
+            docker build --check -f $file . || BAD=true
+            ;;
         * )
             echo "detected but unhandled file type $type: assume OK"
             ;;
@@ -145,10 +156,6 @@ do
         fi
     fi
 done
-if [ -n "$DB_CREATED" ]
-then
-    mysql  -B -e "DROP DATABASE IF EXISTS $DB";
-fi
 
 if [ -z "$badFiles" ]
 then
