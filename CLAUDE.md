@@ -32,13 +32,14 @@ When editing it, preserve these behaviors:
   - `.pl` / `.pm` → `perl -Ilib -cw`
   - `.t` → `prove -l`
   - `.json` → `json_pp`
-  - `.sh` / bash → `bash -n`
+  - `.sh` / bash → `shellcheck -S warning` (falls back to `bash -n` if
+    shellcheck is missing)
   - `.yml` / `.yaml` → `yamllint`
   - `.md` → `markdownlint` (enforces MD013, 80-col line length)
   - `Dockerfile*` → `docker build --check`
   - `.sql` → stub, not yet validated
 - Optionally sources `.perlenv` (local then `~/.perlenv`) to set `$CARTON`
   and `$PERL5LIB` so Perl checks can run under `carton exec`.
-- Assumes on PATH: `yamllint`, `markdownlint`, `json_pp`, `carton`,
-  `docker`, `mysql`.
+- Assumes on PATH: `shellcheck`, `yamllint`, `markdownlint`, `json_pp`,
+  `carton`, `docker`, `mysql`.
 - Escape hatch is `git commit --no-verify`.

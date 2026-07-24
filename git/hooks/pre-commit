@@ -83,6 +83,34 @@ function validate_sql () {
     return 0
 }
 
+function validate_bash () {
+    filename=$1
+    if ! command -v shellcheck >/dev/null 2>&1
+    then
+        echo -e "${BLUE}###${NC} pre-commit: shellcheck not found, falling back to bash -n"
+        bash -n "$filename"
+        return $?
+    fi
+    if shellcheck -S warning "$filename"
+    then
+        return 0
+    fi
+    # a finding at warning level or above; ask, or fail closed if headless
+    if [ "$INTERACTIVE" != 1 ]
+    then
+        echo -e "${RED}???${NC} pre-commit: non-interactive, can't ask about this shell file; treating as failure"
+        return 1
+    fi
+    while true; do
+        echo -e -n "${RED}???${NC} pre-commit: Do you wish to commit this shell file anyway? "; read yn
+        case $yn in
+            [Yy]* ) return 0 ;;
+            [Nn]* ) return 1 ;;
+            * ) echo -e "${RED}???${NC} pre-commit: Please answer yes or no.";;
+        esac
+    done
+}
+
 branch="$(git rev-parse --abbrev-ref HEAD)"
 
 if [ "$branch" = "master" ] || [ "$branch" = "main" ]; then
@@ -135,8 +163,9 @@ do
             json_pp -t null < $file && echo "JSON syntax OK" || BAD=true
             ;;
         bash )
-            # note this WILL NOT check external commands missing from your PATH
-            bash -n $file && echo "Bash syntax OK" || BAD=true
+            # lint with shellcheck (quoting, unset vars, etc.) when available,
+            # otherwise a bare bash -n syntax check
+            validate_bash "$file" && echo "Bash syntax OK" || BAD=true
             ;;
         yaml )
             # note this is a bit picky, so it will prompt you as to whether you
