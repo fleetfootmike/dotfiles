@@ -10,8 +10,15 @@ then
     . ~/.perlenv
 fi
 
-# need tty interaction
-exec < /dev/tty
+# override prompts need the tty; probe it so a missing terminal (CI, an
+# agent, a scripted commit) neither errors here nor hangs the prompts later.
+INTERACTIVE=0
+# shellcheck disable=SC2217  # opening /dev/tty is the probe; true is a no-op
+if { true < /dev/tty; } 2>/dev/null
+then
+    exec < /dev/tty
+    INTERACTIVE=1
+fi
 
 RED='\033[0;31m'
 BLUE='\033[0;34m'
@@ -51,25 +58,29 @@ function typeof () {
 function validate_yaml () {
     # requires yamllint
     filename=$1
-    if yamllint $file
+    if yamllint "$filename"
     then
-        exit 0
-    else
-        # some Ansible and Git YAML has decidedly iffy formatting
-        while true; do
-            echo -e -n "${RED}???${NC} pre-commit: Do you wish to commit this YAML file anyway? "; read yn
-            case $yn in
-                [Yy]* ) exit 0 ;;
-                [Nn]* ) exit 1 ;;
-                * ) echo "${RED}???${NC} pre-commit: Please answer yes or no.";;
-            esac
-        done
+        return 0
     fi
+    # some Ansible and Git YAML has decidedly iffy formatting
+    if [ "$INTERACTIVE" != 1 ]
+    then
+        echo -e "${RED}???${NC} pre-commit: non-interactive, can't ask about this YAML file; treating as failure"
+        return 1
+    fi
+    while true; do
+        echo -e -n "${RED}???${NC} pre-commit: Do you wish to commit this YAML file anyway? "; read yn
+        case $yn in
+            [Yy]* ) return 0 ;;
+            [Nn]* ) return 1 ;;
+            * ) echo -e "${RED}???${NC} pre-commit: Please answer yes or no.";;
+        esac
+    done
 }
 
 function validate_sql () {
-    echo -e "${BLUE}###${NC} Can't validate SQL yet!"
-    exit 0
+    echo -e "${BLUE}###${NC} pre-commit: Can't validate SQL yet!"
+    return 0
 }
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
