@@ -11,6 +11,11 @@ Personal dotfiles: bash shell setup plus Perl-development tooling
 - Config files are stored **without leading dots**: `bashrc` →
   `~/.bashrc`, `bash_profile` → `~/.bash_profile`, `bash_aliases` →
   `~/.bash_aliases`, `perlenv` → `~/.perlenv`, `screenrc` → `~/.screenrc`.
+  The one deliberate exception is markdownlint: the real config is
+  `markdownlint.json` (deploys to `~/.markdownlint.json`), but a tracked
+  `.markdownlint.json` symlink → `markdownlint.json` also sits in the repo
+  root so `markdownlint` auto-discovers the config when the pre-commit hook
+  lints this repo's own `.md` files.
 - There is **no install/bootstrap script**, and the deployment method
   (symlink vs copy) is not fixed — don't assume one.
 - `bin/` is untracked; scripts there aren't part of the committed repo yet.
@@ -27,7 +32,9 @@ is installed here too, so commits here get linted and main is blocked).
 When editing it, preserve these behaviors:
 
 - Blocks direct commits to `main`/`master` (exits 1).
-- Requires a tty (`exec < /dev/tty`) for its interactive prompts.
+- Probes for a tty and only redirects/prompts when one is present; when
+  headless (CI, an agent, a scripted commit) it sets `INTERACTIVE=0` and
+  fails closed on any override-eligible lint finding instead of hanging.
 - Validates staged files by type:
   - `.pl` / `.pm` → `perl -Ilib -cw`
   - `.t` → `prove -l`
@@ -35,7 +42,8 @@ When editing it, preserve these behaviors:
   - `.sh` / bash → `shellcheck -S warning` (falls back to `bash -n` if
     shellcheck is missing)
   - `.yml` / `.yaml` → `yamllint`
-  - `.md` → `markdownlint` (enforces MD013, 80-col line length)
+  - `.md` → `markdownlint` (MD013 80-col line length, per `markdownlint.json`
+    which exempts code blocks)
   - `Dockerfile*` → `docker build --check`
   - `.sql` → stub, not yet validated
 - Optionally sources `.perlenv` (local then `~/.perlenv`) to set `$CARTON`
