@@ -2,11 +2,13 @@
 
 CARTON=""
 # this may potentially set $PERL5LIB and $CARTON
+# shellcheck source=/dev/null  # .perlenv is per-repo and not present to follow
 if [ -e .perlenv ]
 then
   .  .perlenv
 elif [ -e ~/.perlenv ]
 then
+    # shellcheck source=/dev/null  # ~/.perlenv path is non-constant to follow
     . ~/.perlenv
 fi
 
@@ -30,7 +32,7 @@ function typeof () {
 
     # add new filetypes here
 
-    case $(basename $filename) in
+    case $(basename "$filename") in
         *.pl | *.pm ) echo perl; exit ;;
         *.json ) echo json; exit ;;
         *.tmpl | *.tt ) echo template; exit ;;
@@ -44,7 +46,7 @@ function typeof () {
     esac
 
     # for files with no extension, lets look at the shbang line
-    shbang=$(head -1 $1)
+    shbang=$(head -1 "$1")
     case $shbang in
         '#!'*perl )
             echo perl; exit ;;
@@ -55,6 +57,24 @@ function typeof () {
     echo "unhandled";
 }
 
+# Ask whether to commit a file a linter flagged, or fail closed when there is
+# no terminal to ask on. $1 is a human description, e.g. "YAML file".
+function prompt_override () {
+    if [ "$INTERACTIVE" != 1 ]
+    then
+        echo -e "${RED}???${NC} pre-commit: non-interactive, can't ask about this $1; treating as failure"
+        return 1
+    fi
+    while true; do
+        echo -e -n "${RED}???${NC} pre-commit: Do you wish to commit this $1 anyway? "; read yn
+        case $yn in
+            [Yy]* ) return 0 ;;
+            [Nn]* ) return 1 ;;
+            * ) echo -e "${RED}???${NC} pre-commit: Please answer yes or no.";;
+        esac
+    done
+}
+
 function validate_yaml () {
     # requires yamllint
     filename=$1
@@ -63,19 +83,7 @@ function validate_yaml () {
         return 0
     fi
     # some Ansible and Git YAML has decidedly iffy formatting
-    if [ "$INTERACTIVE" != 1 ]
-    then
-        echo -e "${RED}???${NC} pre-commit: non-interactive, can't ask about this YAML file; treating as failure"
-        return 1
-    fi
-    while true; do
-        echo -e -n "${RED}???${NC} pre-commit: Do you wish to commit this YAML file anyway? "; read yn
-        case $yn in
-            [Yy]* ) return 0 ;;
-            [Nn]* ) return 1 ;;
-            * ) echo -e "${RED}???${NC} pre-commit: Please answer yes or no.";;
-        esac
-    done
+    prompt_override "YAML file"
 }
 
 function validate_sql () {
@@ -96,19 +104,7 @@ function validate_bash () {
         return 0
     fi
     # a finding at warning level or above; ask, or fail closed if headless
-    if [ "$INTERACTIVE" != 1 ]
-    then
-        echo -e "${RED}???${NC} pre-commit: non-interactive, can't ask about this shell file; treating as failure"
-        return 1
-    fi
-    while true; do
-        echo -e -n "${RED}???${NC} pre-commit: Do you wish to commit this shell file anyway? "; read yn
-        case $yn in
-            [Yy]* ) return 0 ;;
-            [Nn]* ) return 1 ;;
-            * ) echo -e "${RED}???${NC} pre-commit: Please answer yes or no.";;
-        esac
-    done
+    prompt_override "shell file"
 }
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
@@ -128,21 +124,20 @@ fi
 
 badFiles=""
 
-# if you change this to $(some git command) | while (whatever)
-# remember that the shell variables in the while loop are
-# in a different process, and you will not be able to access
-# them outside of it without significant shell hackery.
-
-for file in $(git diff --cached --name-only $against)
+# Read the staged file list NUL-delimited (-z) so paths with spaces, globs or
+# newlines survive intact, and feed it via process substitution rather than a
+# pipe: a pipe would run this loop in a subshell where badFiles could not
+# escape. bad files are collected newline-separated for the same reason.
+while IFS= read -r -d '' file
 do
-    # bit of a hack, but it'll do
-    if [ $(git status --porcelain $file | sed -e "s;$file;;" | sed -e 's/ //g' ) == "D" ]
+    # skip files staged for deletion — there is nothing on disk to lint
+    if [ -n "$(git diff --cached --name-only --diff-filter=D "$against" -- "$file")" ]
     then
         echo -e "${BLUE}>>>${NC} pre-commit: skipping deleted file $file"; continue
     fi
 
     type=$(typeof "$file")
-    if [ 'unhandled' == $type ]
+    if [ "unhandled" = "$type" ]
     then
         echo -e "${BLUE}>>>${NC} pre-commit: skipping unhandled file $file"; continue
     fi
@@ -154,13 +149,13 @@ do
         test )
             # we could fall through and syntax check the Perl, but trying to run it
             # will essentially do that anyway :D
-            $CARTON prove -l $file || BAD=true
+            $CARTON prove -l "$file" || BAD=true
             ;;
         perl )
-            $CARTON perl -Ilib -cw $file || BAD=true
+            $CARTON perl -Ilib -cw "$file" || BAD=true
             ;;
         json )
-            json_pp -t null < $file && echo "JSON syntax OK" || BAD=true
+            json_pp -t null < "$file" && echo "JSON syntax OK" || BAD=true
             ;;
         bash )
             # lint with shellcheck (quoting, unset vars, etc.) when available,
@@ -170,16 +165,16 @@ do
         yaml )
             # note this is a bit picky, so it will prompt you as to whether you
             # are happy or not.
-            validate_yaml $file && echo "YAML syntax OK" || BAD=true
+            validate_yaml "$file" && echo "YAML syntax OK" || BAD=true
             ;;
         md )
-            markdownlint $file || BAD=true
+            markdownlint "$file" || BAD=true
             ;;
         sql )
-            validate_sql $file && echo "SQL syntax presumed OK" || BAD=true
+            validate_sql "$file" && echo "SQL syntax presumed OK" || BAD=true
             ;;
         dockerfile )
-            docker build --check -f $file . || BAD=true
+            docker build --check -f "$file" . || BAD=true
             ;;
         * )
             echo "detected but unhandled file type $type: assume OK"
@@ -188,14 +183,9 @@ do
 
     if $BAD
     then
-        if [ -z $badFiles ]
-        then
-            badFiles=$file
-        else
-            badFiles="$badFiles;$file"
-        fi
+        badFiles="${badFiles}${file}"$'\n'
     fi
-done
+done < <(git diff --cached --name-only -z "$against")
 
 if [ -z "$badFiles" ]
 then
@@ -204,10 +194,10 @@ then
 else
     echo
     echo -e "${RED}!!!${NC} pre-commit: ${RED}###${NC} Aborting commit.  Failed checks: ${RED}###${NC}"
-    for file in $(echo $badFiles | tr ';' ' ')
+    while IFS= read -r file
     do
-        echo "    $file"
-    done
+        [ -n "$file" ] && echo "    $file"
+    done <<< "$badFiles"
     echo
     echo -e "${RED}!!!${NC} pre-commit: If you are ${RED}ABSOLUTELY${NC} 100% sure that you can skip these pre-commit tests, add:";
     echo "       --no-verify";
