@@ -3,6 +3,11 @@ if [ -f /etc/bashrc ]; then
     . /etc/bashrc
 fi
 
+# perlbrew
+if [ -x ~/perl5/perlbrew/etc/bashrc ]; then
+	    source ~/perl5/perlbrew/etc/bashrc
+fi
+
 # source aliases
 if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
