@@ -89,5 +89,17 @@ picked="$( . "$SCRIPT"; tool_present() { [ "$1" = apt-get ]; }; \
     detect_pkg_mgr; echo "$PKG" )"
 [ "$picked" = apt ]; check "detect_pkg_mgr picks apt" $?
 
+# --- Task 4: orchestration ---
+th3="$(mktemp -d)"
+out="$(bash "$SCRIPT" --deploy-only --home "$th3")"
+echo "$out" | grep -vq "checking prereqs"; check "--deploy-only skips prereqs" $?
+echo "$out" | grep -q "deploying dotfiles"; check "--deploy-only deploys" $?
+
+th4="$(mktemp -d)"
+out="$(bash "$SCRIPT" --check-only --home "$th4")"
+echo "$out" | grep -q "checking prereqs"; check "--check-only checks" $?
+{ echo "$out" | grep -vq "deploying dotfiles" && [ -z "$(ls -A "$th4")" ]; }
+check "--check-only does not deploy" $?
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
