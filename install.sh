@@ -88,8 +88,107 @@ deploy_all() {
     ok "deploy: $INSTALLED installed, $MERGED merged, $UPTODATE up to date, $SKIPPED skipped"
 }
 
+# Core prereqs in dependency order (perlbrew -> perl -> cpanm -> carton;
+# npm -> markdownlint). perl536 is the >= 5.36.0 check.
+CORE_PREREQS=(perlbrew perl536 cpanm carton screen shellcheck yamllint \
+    npm markdownlint)
+OPTIONAL_PREREQS=(docker mysql json_pp)
+
+PKG=none
+
+detect_pkg_mgr() {
+    if tool_present apt-get; then PKG=apt
+    elif tool_present brew; then PKG=brew
+    else PKG=none; fi
+}
+
+perl_ok() {
+    tool_present perl && perl -e 'require 5.036;' >/dev/null 2>&1
+}
+
+prereq_present() {
+    case "$1" in
+        perl536) perl_ok ;;
+        *)       tool_present "$1" ;;
+    esac
+}
+
+label_for() {
+    case "$1" in
+        perl536) echo "perl >= 5.36.0" ;;
+        *)       echo "$1" ;;
+    esac
+}
+
+# Print the install recipe for a tool, honouring $PKG.
+recipe_for() {
+    local tool="$1" apt="" brew="" special=""
+    case "$tool" in
+        perlbrew) special='\curl -L https://install.perlbrew.pl | bash' ;;
+        perl536)  special='perlbrew install perl-5.36.0' ;;
+        cpanm)    special='perlbrew install-cpanm'
+                  apt='sudo apt-get install -y cpanminus'
+                  brew='brew install cpanminus' ;;
+        carton)   special='cpanm Carton' ;;
+        screen)   apt='sudo apt-get install -y screen'
+                  brew='brew install screen' ;;
+        shellcheck) apt='sudo apt-get install -y shellcheck'
+                  brew='brew install shellcheck' ;;
+        yamllint) apt='sudo apt-get install -y yamllint'
+                  brew='brew install yamllint' ;;
+        npm)      apt='sudo apt-get install -y nodejs npm'
+                  brew='brew install node' ;;
+        markdownlint) special='npm install -g markdownlint-cli' ;;
+        docker)   apt='sudo apt-get install -y docker.io'
+                  brew='brew install --cask docker' ;;
+        mysql)    apt='sudo apt-get install -y mariadb-client'
+                  brew='brew install mysql-client' ;;
+        json_pp)  special='ships with perl' ;;
+        *)        special='(no recipe)' ;;
+    esac
+    if [ -n "$special" ]; then
+        printf '%s' "$special"
+        if [ "$PKG" = apt ]  && [ -n "$apt" ];  then printf '  (or %s)' "$apt"; fi
+        if [ "$PKG" = brew ] && [ -n "$brew" ]; then printf '  (or %s)' "$brew"; fi
+    elif [ "$PKG" = apt ]  && [ -n "$apt" ];  then printf '%s' "$apt"
+    elif [ "$PKG" = brew ] && [ -n "$brew" ]; then printf '%s' "$brew"
+    else printf '(install manually)'
+    fi
+}
+
+check_prereqs() {
+    detect_pkg_mgr
+    info "checking prereqs (package manager: $PKG)"
+    local missing=0 tool
+    for tool in "${CORE_PREREQS[@]}"; do
+        if prereq_present "$tool"; then
+            ok "$(label_for "$tool") present"
+        else
+            missing=$((missing + 1))
+            if [ "$PKG" = none ]; then
+                warn "$(label_for "$tool") MISSING"
+            else
+                warn "$(label_for "$tool") MISSING -> $(recipe_for "$tool")"
+            fi
+        fi
+    done
+    for tool in "${OPTIONAL_PREREQS[@]}"; do
+        if prereq_present "$tool"; then
+            ok "$(label_for "$tool") present (optional)"
+        elif [ "$PKG" = none ]; then
+            warn "$(label_for "$tool") missing (optional)"
+        else
+            warn "$(label_for "$tool") missing (optional) -> $(recipe_for "$tool")"
+        fi
+    done
+    if [ "$missing" -eq 0 ]; then
+        ok "all core prereqs present"
+    else
+        warn "$missing core prereq(s) missing"
+    fi
+}
+
 main() {
-    # shellcheck disable=SC2034  # Variables used by functions added in later tasks
     while [ $# -gt 0 ]; do
         case "$1" in
             --check-only)  DO_DEPLOY=0 ;;
@@ -101,6 +200,7 @@ main() {
         esac
         shift
     done
+    if [ "$DO_CHECK" = 1 ]; then check_prereqs; fi
     if [ "$DO_DEPLOY" = 1 ]; then deploy_all; fi
     return 0
 }
