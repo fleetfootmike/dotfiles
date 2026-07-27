@@ -101,5 +101,23 @@ echo "$out" | grep -q "checking prereqs"; check "--check-only checks" $?
 { echo "$out" | grep -vq "deploying dotfiles" && [ -z "$(ls -A "$th4")" ]; }
 check "--check-only does not deploy" $?
 
+# --- Final polish: added prereq coverage ---
+# recipe_for honours PKG=brew for a pure-brew tool
+# shellcheck disable=SC1090
+brewrec="$( . "$SCRIPT"; PKG=brew; recipe_for shellcheck )"
+echo "$brewrec" | grep -q "brew install shellcheck"; check "recipe_for brew branch" $?
+
+# check_prereqs ok-path: everything present -> no MISSING, reports all present
+# shellcheck disable=SC1090
+okout="$( . "$SCRIPT"; prereq_present() { return 0; }; check_prereqs 2>&1 )"
+echo "$okout" | grep -vq "MISSING"; check "check_prereqs ok-path has no MISSING" $?
+echo "$okout" | grep -q "all core prereqs present"; check "check_prereqs ok-path summary" $?
+
+# cpanm prints its special recipe plus the (or apt) alternative under PKG=apt
+# shellcheck disable=SC1090
+cpanmrec="$( . "$SCRIPT"; PKG=apt; recipe_for cpanm )"
+echo "$cpanmrec" | grep -q "perlbrew install-cpanm"; check "cpanm special recipe" $?
+echo "$cpanmrec" | grep -q "or sudo apt-get install -y cpanminus"; check "cpanm apt alternative" $?
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

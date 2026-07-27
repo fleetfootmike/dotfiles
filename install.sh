@@ -54,9 +54,12 @@ is_interactive() {
 deploy_file() {
     local name="$1" src="$REPO_ROOT/$name" target="$DEST_HOME/.$name"
     if [ ! -e "$target" ]; then
-        cp "$src" "$target"; ok "installed .$name"
-        INSTALLED=$((INSTALLED + 1))
-    elif cmp -s "$src" "$target"; then
+        if cp "$src" "$target"; then
+            ok "installed .$name"; INSTALLED=$((INSTALLED + 1))
+        else
+            warn ".$name: copy failed, skipping"; SKIPPED=$((SKIPPED + 1))
+        fi
+    elif cmp -s "$src" "$target" 2>/dev/null; then
         info ".$name up to date"; UPTODATE=$((UPTODATE + 1))
     else
         local mergecmd="${DOTFILES_MERGE%% *}"

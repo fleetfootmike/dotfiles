@@ -19,11 +19,11 @@ Personal dotfiles: bash shell setup plus Perl-development tooling
 - `install.sh` (repo root) deploys the config files into `$HOME` by
   **copy** (adding the leading dot), launching a merge tool (`vimdiff`
   by default, override with `$DOTFILES_MERGE`) when a target already
-  exists and differs. `perlenv` is never deployed. It also runs a
+  exists and differs and a tty is available, skipping rather than
+  overwriting otherwise. `perlenv` is never deployed. It also runs a
   report-only prereq check that prints per-tool install commands but
   never installs anything. Run `install.sh --help` for options.
-  `$DOTFILES_MERGE` picks the merge tool and `$DOTFILES_INTERACTIVE`
-  (1 or 0) forces or skips the merge prompt.
+  `$DOTFILES_INTERACTIVE` (1 or 0) forces or skips the merge prompt.
 - `bin/` is untracked; scripts there aren't part of the committed repo yet.
 - No CI. The one test is `test/install_test.sh` (run
   `bash test/install_test.sh`), covering `install.sh`.
