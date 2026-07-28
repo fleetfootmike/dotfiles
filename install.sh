@@ -35,7 +35,8 @@ EOF
 
 # In-scope dotfiles: each is copied to $DEST_HOME/.<name>. Deliberately
 # excludes perlenv (per-repo) and the pre-commit hook template.
-DOTFILES=(bashrc bash_profile bash_aliases screenrc markdownlint.json)
+DOTFILES=(bashrc bash_profile bash_aliases screenrc markdownlint.json \
+    perlenv_hook)
 
 INSTALLED=0; UPTODATE=0; MERGED=0; SKIPPED=0
 DOTFILES_MERGE="${DOTFILES_MERGE:-vimdiff}"

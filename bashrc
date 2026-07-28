@@ -48,3 +48,8 @@ then
     screen -RR -S main || echo "Screen failed! continuing with normal bash startup"
 fi
 # [end of auto-screen snippet]
+
+# perlenv cd hook
+if [ -f ~/.perlenv_hook ]; then
+    . ~/.perlenv_hook
+fi

@@ -3,3 +3,6 @@
 # if your perl env requires carton
 export CARTON="carton exec "
 export PERL5LIB=./lib:./t/lib:$PERL5LIB
+
+# set PERL_VERSION so the cd hook switches perlbrew perls for you:
+# export PERL_VERSION=perl-5.36.0

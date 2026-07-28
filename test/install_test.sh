@@ -119,5 +119,11 @@ cpanmrec="$( . "$SCRIPT"; PKG=apt; recipe_for cpanm )"
 echo "$cpanmrec" | grep -q "perlbrew install-cpanm"; check "cpanm special recipe" $?
 echo "$cpanmrec" | grep -q "or sudo apt-get install -y cpanminus"; check "cpanm apt alternative" $?
 
+# --- perlenv_hook is deployed ---
+th5="$(mktemp -d)"
+bash "$SCRIPT" --deploy-only --home "$th5" >/dev/null
+[ -f "$th5/.perlenv_hook" ] && cmp -s "$HERE/perlenv_hook" "$th5/.perlenv_hook"
+check "install deploys perlenv_hook" $?
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
