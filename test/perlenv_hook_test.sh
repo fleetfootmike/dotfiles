@@ -85,5 +85,36 @@ d=$(mktemp -d)
 printf "requires 'perl', '5.020'; # needs 5.99 elsewhere\n" > "$d/cpanfile"
 eq "$(_perlenv_detect_min_version "$d")" perl-5.20.0 "detect takes first token per line"
 
+# --- Task 3: allow-list ---
+store=$(mktemp -u)
+export PERLENV_ALLOW_FILE="$store"
+d=$(mktemp -d); printf 'export CARTON="carton exec "\n' > "$d/.perlenv"
+_perlenv_allow_check "$d/.perlenv"
+check "unknown .perlenv not allowed" \
+    "$([ $? -ne 0 ] && echo 0 || echo 1)"
+_perlenv_allow_add "$d/.perlenv"
+_perlenv_allow_check "$d/.perlenv"; check "added .perlenv is allowed" $?
+printf 'export CARTON="x"\n' >> "$d/.perlenv"   # change contents
+_perlenv_allow_check "$d/.perlenv"
+check "changed .perlenv no longer allowed" \
+    "$([ $? -ne 0 ] && echo 0 || echo 1)"
+_perlenv_allow_add "$d/.perlenv"
+lines=$(grep -c " $(_perlenv_abspath "$d/.perlenv")\$" "$store")
+eq "$lines" "1" "re-add replaces the old entry (one line for path)"
+unset PERLENV_ALLOW_FILE
+
+# re-adding a path must dedup on the EXACT path, not a substring match
+store=$(mktemp -u); export PERLENV_ALLOW_FILE="$store"
+a=$(mktemp -d); printf 'x\n' > "$a/.perlenv"; _perlenv_allow_add "$a/.perlenv"
+absA=$(_perlenv_abspath "$a/.perlenv")
+printf 'deadbeef /other/x %s\n' "$absA" >> "$store"   # path merely CONTAINS absA
+_perlenv_allow_add "$a/.perlenv"                        # re-add A
+grep -qF "deadbeef /other/x $absA" "$store"
+check "re-add dedups on exact path, keeps substring-containing entries" $?
+# the allow store is not group/world readable
+perms=$(stat -c '%a' "$store" 2>/dev/null || stat -f '%Lp' "$store" 2>/dev/null)
+eq "$perms" "600" "allow store is chmod 600"
+unset PERLENV_ALLOW_FILE
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

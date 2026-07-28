@@ -67,3 +67,53 @@ _perlenv_detect_min_version() {
         [ -n "$tok" ] && _perlenv_normalize_version "$tok"
     done | sort -V | tail -1
 }
+
+_perlenv_allow_file() {
+    printf '%s\n' \
+        "${PERLENV_ALLOW_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/perlenv/allow}"
+}
+
+_perlenv_hash() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" 2>/dev/null | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+    else
+        return 1
+    fi
+}
+
+_perlenv_abspath() {
+    ( cd "$(dirname "$1")" 2>/dev/null && \
+        printf '%s/%s\n' "$(pwd -P)" "$(basename "$1")" )
+}
+
+# rc 0 if this .perlenv is allowed with a matching hash, else 1.
+_perlenv_allow_check() {
+    local f="$1" store h abs
+    h=$(_perlenv_hash "$f") || return 1
+    abs=$(_perlenv_abspath "$f") || return 1
+    store=$(_perlenv_allow_file)
+    [ -f "$store" ] || return 1
+    grep -qxF "$h $abs" "$store"
+}
+
+# Record path+hash, replacing any prior entry for the same path.
+_perlenv_allow_add() {
+    local f="$1" store dir h abs
+    h=$(_perlenv_hash "$f") || return 1
+    abs=$(_perlenv_abspath "$f") || return 1
+    store=$(_perlenv_allow_file); dir=$(dirname "$store")
+    [ -d "$dir" ] || mkdir -p "$dir" || return 1
+    chmod 700 "$dir" 2>/dev/null || true
+    if [ -f "$store" ]; then
+        # drop any prior entry for exactly this path (compare the path
+        # field exactly, not as a substring)
+        awk -v p="$abs" \
+            'index($0, " ") == 0 || substr($0, index($0, " ") + 1) != p' \
+            "$store" > "$store.tmp" 2>/dev/null || true
+        mv "$store.tmp" "$store"
+    fi
+    printf '%s %s\n' "$h" "$abs" >> "$store"
+    chmod 600 "$store" 2>/dev/null || true
+}
