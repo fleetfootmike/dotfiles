@@ -46,3 +46,24 @@ _perlenv_parse_version() {
     [ -n "$val" ] || return 1
     printf '%s\n' "$val"
 }
+
+# Best-effort minimum perl version for a repo, as perl-5.MM.PP (or empty).
+# Scans: use VERSION in *.pm, and a perl prereq in cpanfile/Makefile.PL/
+# dist.ini. Highest floor wins. Best-effort, no guarantees.
+_perlenv_detect_min_version() {
+    local d="${1:-.}" line tok
+    {
+        grep -rhE 'use[[:space:]]+v?5\.' "$d" --include='*.pm' \
+            --exclude-dir=blib --exclude-dir=.build \
+            --exclude-dir=_build 2>/dev/null
+        [ -f "$d/cpanfile" ] && \
+            grep -E "['\"]perl['\"]" "$d/cpanfile" 2>/dev/null
+        [ -f "$d/Makefile.PL" ] && \
+            grep -E 'MIN_PERL_VERSION' "$d/Makefile.PL" 2>/dev/null
+        [ -f "$d/dist.ini" ] && \
+            grep -iE '^[[:space:]]*perl[[:space:]]*=' "$d/dist.ini" 2>/dev/null
+    } | while IFS= read -r line; do
+        tok=$(printf '%s\n' "$line" | grep -oE 'v?5\.[0-9][._0-9]*' | head -1)
+        [ -n "$tok" ] && _perlenv_normalize_version "$tok"
+    done | sort -V | tail -1
+}

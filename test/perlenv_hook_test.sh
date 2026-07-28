@@ -40,5 +40,50 @@ _perlenv_parse_version "$t4/commented" >/dev/null 2>&1
 check "parse ignores commented PERL_VERSION" \
     "$([ $? -ne 0 ] && echo 0 || echo 1)"
 
+# --- Task 2: detector ---
+d=$(mktemp -d); mkdir -p "$d/lib"
+printf 'package X;\nuse 5.010;\n1;\n' > "$d/lib/X.pm"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.10.0 "detect use 5.010"
+
+d=$(mktemp -d)
+printf "requires 'perl', '5.034';\nrequires 'Moo';\n" > "$d/cpanfile"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.34.0 "detect cpanfile perl"
+
+d=$(mktemp -d)
+printf "use ExtUtils::MakeMaker;\nWriteMakefile(MIN_PERL_VERSION => '5.020');\n" \
+    > "$d/Makefile.PL"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.20.0 "detect Makefile.PL"
+
+d=$(mktemp -d)
+printf '[Prereqs]\nperl = 5.028\n' > "$d/dist.ini"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.28.0 "detect dist.ini"
+
+# highest wins across sources
+d=$(mktemp -d); mkdir -p "$d/lib"
+printf 'use 5.010;\n' > "$d/lib/A.pm"
+printf "requires 'perl', '5.036';\n" > "$d/cpanfile"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.36.0 "detect highest wins"
+
+# nothing detected -> empty
+d=$(mktemp -d); touch "$d/README"
+eq "$(_perlenv_detect_min_version "$d")" "" "detect none -> empty"
+
+# carton local/ deps DO raise the floor (a dep needing 5.38 => repo needs 5.38)
+d=$(mktemp -d); mkdir -p "$d/lib" "$d/local/lib/perl5/Dep"
+printf 'use 5.010;\n' > "$d/lib/App.pm"
+printf 'use 5.038;\n' > "$d/local/lib/perl5/Dep/Mod.pm"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.38.0 "detect counts local/ deps"
+
+# blib/ build artifacts (copies of own lib) are skipped
+d=$(mktemp -d); mkdir -p "$d/lib" "$d/blib/lib"
+printf 'use 5.010;\n' > "$d/lib/App.pm"
+printf 'use 5.040;\n' > "$d/blib/lib/App.pm"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.10.0 "detect skips blib build artifact"
+
+# a second version token on the same line must not win
+d=$(mktemp -d)
+printf "requires 'perl', '5.020'; # needs 5.99 elsewhere\n" > "$d/cpanfile"
+eq "$(_perlenv_detect_min_version "$d")" perl-5.20.0 "detect takes first token per line"
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
