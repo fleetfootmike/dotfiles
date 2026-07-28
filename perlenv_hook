@@ -1,0 +1,48 @@
+# shellcheck shell=bash
+# perlenv_hook - bash cd hook to manage the per-repo perlbrew perl and
+# .perlenv. Sourced from ~/.bashrc. Interactive shells only. No set -e/-u.
+
+# Normalize a raw perl version token to perlbrew form perl-5.MM.PP.
+# Used ONLY by the detector; the cd hook uses PERL_VERSION as written.
+_perlenv_normalize_version() {
+    local v="$1" maj rest min pat
+    v="${v#perl-}"; v="${v#v}"
+    case "$v" in
+        *.*.*) printf 'perl-%s\n' "$v"; return 0 ;;
+        *.*)
+            maj="${v%%.*}"; rest="${v#*.}"; rest="${rest//[!0-9]/}"
+            case ${#rest} in
+                0) return 1 ;;
+                1|2|3) min=$((10#$rest)); pat=0 ;;
+                *) min=$((10#${rest:0:3})); pat=$((10#${rest:3:3})) ;;
+            esac
+            printf 'perl-%s.%s.%s\n' "$maj" "$min" "$pat"; return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Does $1 (default .) look like a Perl project?
+_perlenv_is_perl_repo() {
+    local d="${1:-.}"
+    [ -f "$d/cpanfile" ] && return 0
+    [ -f "$d/Makefile.PL" ] && return 0
+    [ -f "$d/dist.ini" ] && return 0
+    [ -d "$d/lib" ] && \
+        [ -n "$(find "$d/lib" -name '*.pm' -print -quit 2>/dev/null)" ] && \
+        return 0
+    return 1
+}
+
+# Echo the raw (trimmed) PERL_VERSION value from a .perlenv, rc 1 if none.
+_perlenv_parse_version() {
+    local f="$1" line val
+    [ -f "$f" ] || return 1
+    line=$(grep -E '^[[:space:]]*(export[[:space:]]+)?PERL_VERSION=' "$f" \
+        2>/dev/null | tail -1)
+    [ -n "$line" ] || return 1
+    val="${line#*=}"; val="${val%%#*}"
+    val="${val//\"/}"; val="${val//\'/}"
+    val="$(printf '%s' "$val" | tr -d '[:space:]')"
+    [ -n "$val" ] || return 1
+    printf '%s\n' "$val"
+}
