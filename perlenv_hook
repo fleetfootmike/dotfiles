@@ -150,3 +150,122 @@ perlenv-init() {
         echo "perlenv-init: wrote $root/.perlenv (set PERL_VERSION yourself)"
     fi
 }
+
+_perlenv_confirm() {
+    local ans
+    case "${PERLENV_ASSUME:-}" in
+        yes) return 0 ;; no) return 1 ;;
+    esac
+    read -r -p ">>> perlenv: $1 [y/N] " ans
+    case "$ans" in [Yy]*) return 0 ;; *) return 1 ;; esac
+}
+
+_perlenv_decline() { _PERLENV_DECLINED="${_PERLENV_DECLINED:-}
+$1"; }
+_perlenv_declined() {
+    case "
+${_PERLENV_DECLINED:-}
+" in *"
+$1
+"*) return 0 ;; *) return 1 ;; esac
+}
+
+_perlenv_perl_installed() {
+    perlbrew list 2>/dev/null | sed 's/^[* ]*//' | grep -qxF "$1"
+}
+
+# snapshot env, source the .perlenv, switch perl
+_perlenv_apply() {
+    local root="$1" pe="$2" pv
+    _PERLENV_SAVED_PERL5LIB="${PERL5LIB-}"
+    _PERLENV_SAVED_PERL5LIB_SET="${PERL5LIB+1}"
+    _PERLENV_SAVED_CARTON="${CARTON-}"
+    _PERLENV_SAVED_CARTON_SET="${CARTON+1}"
+    # shellcheck source=/dev/null
+    . "$pe"
+    _PERLENV_ACTIVE_ROOT="$root"
+    pv=$(_perlenv_parse_version "$pe") || return 0
+    # perlbrew absent? skip the switch quietly. install.sh's prereq check
+    # already yells about installing perlbrew, so no second warning here.
+    command -v perlbrew >/dev/null 2>&1 || return 0
+    if _perlenv_perl_installed "$pv"; then
+        perlbrew use "$pv"
+    else
+        printf '!!! perlenv: .perlenv wants %s (not installed). To build it:\n' \
+            "$pv" >&2
+        printf '      perlbrew install %s\n' "$pv" >&2
+    fi
+}
+
+# restore env snapshot and revert perl to the default
+_perlenv_revert() {
+    if [ "${_PERLENV_SAVED_PERL5LIB_SET:-}" = 1 ]; then
+        export PERL5LIB="${_PERLENV_SAVED_PERL5LIB:-}"
+    else
+        unset PERL5LIB
+    fi
+    if [ "${_PERLENV_SAVED_CARTON_SET:-}" = 1 ]; then
+        export CARTON="${_PERLENV_SAVED_CARTON:-}"
+    else
+        unset CARTON
+    fi
+    unset _PERLENV_SAVED_PERL5LIB _PERLENV_SAVED_PERL5LIB_SET
+    unset _PERLENV_SAVED_CARTON _PERLENV_SAVED_CARTON_SET
+    _PERLENV_ACTIVE_ROOT=""
+    command -v perlbrew >/dev/null 2>&1 || return 0
+    if [ -n "${PERLENV_DEFAULT:-}" ]; then
+        perlbrew use "$PERLENV_DEFAULT"
+    else
+        perlbrew off 2>/dev/null || true
+    fi
+}
+
+_perlenv_enter() {
+    local root="$1" pe="$1/.perlenv"
+    if [ -f "$pe" ]; then
+        if _perlenv_allow_check "$pe"; then
+            _perlenv_apply "$root" "$pe"
+        elif _perlenv_declined "$pe"; then
+            :
+        elif _perlenv_confirm "allow .perlenv in $root?"; then
+            _perlenv_allow_add "$pe" && _perlenv_apply "$root" "$pe"
+        else
+            _perlenv_decline "$pe"
+        fi
+    elif _perlenv_is_perl_repo "$root"; then
+        if ! _perlenv_declined "$root"; then
+            if _perlenv_confirm "no .perlenv in Perl repo $root; create one?"; then
+                ( cd "$root" && perlenv-init )
+                if [ -f "$pe" ]; then
+                    _perlenv_allow_add "$pe" && _perlenv_apply "$root" "$pe"
+                fi
+            else
+                _perlenv_decline "$root"
+            fi
+        fi
+    fi
+}
+
+# PROMPT_COMMAND handler: act only when the git repo root changes.
+_perlenv_chpwd() {
+    [ "$PWD" = "${_PERLENV_LAST_PWD:-}" ] && return
+    _PERLENV_LAST_PWD="$PWD"
+    local root
+    root=$(git rev-parse --show-toplevel 2>/dev/null)
+    [ "$root" = "${_PERLENV_LAST_ROOT:-}" ] && return
+    _PERLENV_LAST_ROOT="$root"
+    [ -n "${_PERLENV_ACTIVE_ROOT:-}" ] && _perlenv_revert
+    [ -n "$root" ] && _perlenv_enter "$root"
+    return 0
+}
+
+# Wire into PROMPT_COMMAND for interactive shells only (skipped when the
+# file is sourced non-interactively, e.g. by the test harness).
+case $- in
+    *i*)
+        case "${PROMPT_COMMAND:-}" in
+            *_perlenv_chpwd*) : ;;
+            *) PROMPT_COMMAND="_perlenv_chpwd${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
+        esac
+        ;;
+esac

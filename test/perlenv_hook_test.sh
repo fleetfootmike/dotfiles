@@ -137,5 +137,83 @@ check "perlenv-init leaves PERL_VERSION unset when none detected" \
 check "perlenv-init refuses to overwrite existing .perlenv" \
     "$([ $? -ne 0 ] && echo 0 || echo 1)"
 
+# --- Task 5: chpwd handler ---
+# stub perlbrew; record the last use/off to a file the PARENT reads
+perlbrew() {
+    case "${1:-}" in
+        list) printf '  perl-5.34.0\n* perl-5.36.0\n  perl-5.20.0\n' ;;
+        use)  echo "$2" > "$PB" ;;
+        off)  echo off > "$PB" ;;
+    esac
+}
+mkrepo() { local r; r=$(mktemp -d); ( cd "$r" && git init -q ); echo "$r"; }
+
+# enter a repo whose allowed .perlenv sets an installed PERL_VERSION
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL5LIB=./lib\nexport PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+p5=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+      cd "$r" && _perlenv_chpwd; printf '%s' "${PERL5LIB:-<unset>}" )
+eq "$(cat "$PB")" perl-5.36.0 "enter: perlbrew use installed version"
+eq "$p5" "./lib" "enter: .perlenv sourced (PERL5LIB set)"
+
+# leaving reverts perl (no PERLENV_DEFAULT -> off) and restores PERL5LIB
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export PERL5LIB=./lib\nexport PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+p5=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes; export PERL5LIB=preexisting
+      cd "$r" && _perlenv_chpwd
+      cd "$out" && _perlenv_chpwd; printf '%s' "${PERL5LIB:-<unset>}" )
+eq "$(cat "$PB")" off "leave: perlbrew off"
+eq "$p5" preexisting "leave: PERL5LIB restored"
+
+# uninstalled version -> warn, no perlbrew use
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL_VERSION=perl-5.99.0\n' > "$r/.perlenv"
+( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+  cd "$r" && _perlenv_chpwd 2>/dev/null )
+[ ! -s "$PB" ]; check "enter: uninstalled version does not perlbrew use" $?
+
+# declined allow -> .perlenv not sourced
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL5LIB=./lib\n' > "$r/.perlenv"
+p5=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=no; export PERL5LIB=preexisting
+      cd "$r" && _perlenv_chpwd; printf '%s' "${PERL5LIB:-<unset>}" )
+eq "$p5" preexisting "declined allow: .perlenv not sourced"
+
+# direct repo -> different repo: revert A then apply B
+PB=$(mktemp); store=$(mktemp -u); rA=$(mkrepo); rB=$(mkrepo)
+printf 'export PERL5LIB=./libA\nexport PERL_VERSION=perl-5.36.0\n' > "$rA/.perlenv"
+printf 'export PERL5LIB=./libB\nexport PERL_VERSION=perl-5.34.0\n' > "$rB/.perlenv"
+p5=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+      cd "$rA" && _perlenv_chpwd
+      cd "$rB" && _perlenv_chpwd; printf '%s' "${PERL5LIB:-<unset>}" )
+eq "$(cat "$PB")" perl-5.34.0 "repo->repo: perl switches to B"
+eq "$p5" "./libB" "repo->repo: PERL5LIB is B's"
+
+# subdir of same repo -> no re-switch
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); mkdir -p "$r/lib/Deep"
+printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+after=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+         cd "$r" && _perlenv_chpwd
+         : > "$PB"
+         cd "$r/lib/Deep" && _perlenv_chpwd
+         cat "$PB" )
+eq "$after" "" "subdir of same repo: no re-switch"
+
+# PERLENV_DEFAULT set -> leave reverts to it (not off)
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes PERLENV_DEFAULT=perl-5.20.0
+  cd "$r" && _perlenv_chpwd
+  cd "$out" && _perlenv_chpwd )
+eq "$(cat "$PB")" perl-5.20.0 "leave: reverts to PERLENV_DEFAULT"
+
+# CARTON snapshot/restore across enter/leave
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export CARTON="carton exec "\nexport PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+c=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes; export CARTON=orig
+     cd "$r" && _perlenv_chpwd
+     cd "$out" && _perlenv_chpwd; printf '%s' "${CARTON:-<unset>}" )
+eq "$c" orig "leave: CARTON restored"
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
