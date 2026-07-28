@@ -116,5 +116,26 @@ perms=$(stat -c '%a' "$store" 2>/dev/null || stat -f '%Lp' "$store" 2>/dev/null)
 eq "$perms" "600" "allow store is chmod 600"
 unset PERLENV_ALLOW_FILE
 
+# --- Task 4: perlenv-init ---
+d=$(mktemp -d); ( cd "$d" && git init -q )
+printf "requires 'perl', '5.036';\n" > "$d/cpanfile"
+( cd "$d" && perlenv-init >/dev/null )
+[ -f "$d/.perlenv" ]; check "perlenv-init writes .perlenv" $?
+grep -q '^export PERL_VERSION=perl-5.36.0$' "$d/.perlenv"
+check "perlenv-init fills detected PERL_VERSION" $?
+grep -q 'CARTON=' "$d/.perlenv"; check "perlenv-init includes template body" $?
+
+# no signals -> template only, no active PERL_VERSION
+d=$(mktemp -d); ( cd "$d" && git init -q ); touch "$d/README"
+( cd "$d" && perlenv-init >/dev/null )
+grep -qE '^export PERL_VERSION=' "$d/.perlenv"
+check "perlenv-init leaves PERL_VERSION unset when none detected" \
+    "$([ $? -ne 0 ] && echo 0 || echo 1)"
+
+# refuses to clobber
+( cd "$d" && perlenv-init >/dev/null 2>&1 )
+check "perlenv-init refuses to overwrite existing .perlenv" \
+    "$([ $? -ne 0 ] && echo 0 || echo 1)"
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

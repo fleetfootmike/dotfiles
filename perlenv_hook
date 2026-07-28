@@ -117,3 +117,36 @@ _perlenv_allow_add() {
     printf '%s %s\n' "$h" "$abs" >> "$store"
     chmod 600 "$store" 2>/dev/null || true
 }
+
+_perlenv_write_template() {
+    cat > "$1" <<'TEMPLATE'
+# .perlenv - per-repo Perl environment, sourced by the pre-commit hook and
+# the perlenv cd hook.
+
+# if your perl env requires carton
+export CARTON="carton exec "
+export PERL5LIB=./lib:./t/lib:$PERL5LIB
+
+# set PERL_VERSION so the cd hook switches perlbrew perls for you:
+# export PERL_VERSION=perl-5.36.0
+TEMPLATE
+}
+
+# Create .perlenv at the current repo root, pre-filling a detected
+# PERL_VERSION when one is found.
+perlenv-init() {
+    local root pv
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+        echo "perlenv-init: not inside a git repo" >&2; return 1; }
+    if [ -e "$root/.perlenv" ]; then
+        echo "perlenv-init: $root/.perlenv already exists" >&2; return 1
+    fi
+    _perlenv_write_template "$root/.perlenv"
+    pv=$(_perlenv_detect_min_version "$root")
+    if [ -n "$pv" ]; then
+        printf 'export PERL_VERSION=%s\n' "$pv" >> "$root/.perlenv"
+        echo "perlenv-init: wrote $root/.perlenv (PERL_VERSION=$pv, detected)"
+    else
+        echo "perlenv-init: wrote $root/.perlenv (set PERL_VERSION yourself)"
+    fi
+}
