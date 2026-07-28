@@ -181,6 +181,9 @@ _perlenv_apply() {
     _PERLENV_SAVED_PERL5LIB_SET="${PERL5LIB+1}"
     _PERLENV_SAVED_CARTON="${CARTON-}"
     _PERLENV_SAVED_CARTON_SET="${CARTON+1}"
+    # allow_check-then-source has a tiny TOCTOU window (the file could
+    # change between the hash check and this source); accepted as-is for
+    # a single-user dotfiles repo.
     # shellcheck source=/dev/null
     . "$pe"
     _PERLENV_ACTIVE_ROOT="$root"
@@ -189,7 +192,8 @@ _perlenv_apply() {
     # already yells about installing perlbrew, so no second warning here.
     command -v perlbrew >/dev/null 2>&1 || return 0
     if _perlenv_perl_installed "$pv"; then
-        perlbrew use "$pv"
+        perlbrew use "$pv" >/dev/null 2>&1
+        _PERLENV_SWITCHED=1
     else
         printf '!!! perlenv: .perlenv wants %s (not installed). To build it:\n' \
             "$pv" >&2
@@ -212,12 +216,14 @@ _perlenv_revert() {
     unset _PERLENV_SAVED_PERL5LIB _PERLENV_SAVED_PERL5LIB_SET
     unset _PERLENV_SAVED_CARTON _PERLENV_SAVED_CARTON_SET
     _PERLENV_ACTIVE_ROOT=""
-    command -v perlbrew >/dev/null 2>&1 || return 0
-    if [ -n "${PERLENV_DEFAULT:-}" ]; then
-        perlbrew use "$PERLENV_DEFAULT"
-    else
-        perlbrew off 2>/dev/null || true
+    if [ "${_PERLENV_SWITCHED:-}" = 1 ] && command -v perlbrew >/dev/null 2>&1; then
+        if [ -n "${PERLENV_DEFAULT:-}" ]; then
+            perlbrew use "$PERLENV_DEFAULT" >/dev/null 2>&1
+        else
+            perlbrew off >/dev/null 2>&1 || true
+        fi
     fi
+    _PERLENV_SWITCHED=""
 }
 
 _perlenv_enter() {

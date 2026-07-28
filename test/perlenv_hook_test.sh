@@ -215,5 +215,22 @@ c=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes; export CARTON=orig
      cd "$out" && _perlenv_chpwd; printf '%s' "${CARTON:-<unset>}" )
 eq "$c" orig "leave: CARTON restored"
 
+# entering a .perlenv with NO PERL_VERSION must not switch perl, and leaving
+# must NOT run perlbrew off (nothing was switched, so nothing to revert)
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export PERL5LIB=./lib\n' > "$r/.perlenv"
+( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+  cd "$r" && _perlenv_chpwd
+  cd "$out" && _perlenv_chpwd )
+[ ! -s "$PB" ]; check "no PERL_VERSION: enter+leave never touch perlbrew" $?
+
+# ...but PERL5LIB is still restored on leave (env revert is unconditional)
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export PERL5LIB=./repolib\n' > "$r/.perlenv"
+p5=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes; export PERL5LIB=preexisting
+      cd "$r" && _perlenv_chpwd
+      cd "$out" && _perlenv_chpwd; printf '%s' "${PERL5LIB:-<unset>}" )
+eq "$p5" preexisting "no PERL_VERSION: PERL5LIB still restored on leave"
+
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
