@@ -154,8 +154,11 @@ _merge_editor() {
     if grep -qE '^(<<<<<<< |>>>>>>> |=======$)' "$tmp"; then
         warn ".$name: conflict markers unresolved, kept unchanged"
         SKIPPED=$((SKIPPED + 1))
+    elif cp "$tmp" "$target"; then
+        ok "merged .$name"; MERGED=$((MERGED + 1))
     else
-        cp "$tmp" "$target"; ok "merged .$name"; MERGED=$((MERGED + 1))
+        warn ".$name: merge copy failed, kept unchanged"
+        SKIPPED=$((SKIPPED + 1))
     fi
     rm -f "$tmp"
 }
@@ -303,7 +306,10 @@ merge_file() {
         warn ".$name: no diff header, kept unchanged"
         SKIPPED=$((SKIPPED + 1)); rm -rf "$tmpdir"; return 0
     fi
-    cp "$tmpdir/header" "$accepted"
+    if ! cp "$tmpdir/header" "$accepted"; then
+        warn ".$name: cannot stage patch, kept unchanged"
+        SKIPPED=$((SKIPPED + 1)); rm -rf "$tmpdir"; return 0
+    fi
 
     if ! exec 3< "$input"; then
         warn ".$name: cannot read answers, kept unchanged"
@@ -329,11 +335,18 @@ merge_file() {
         rm -rf "$tmpdir"; _merge_editor "$name" "$src" "$target"; return 0
     fi
     if [ "$any" = 1 ]; then
-        local copy="$tmpdir/copy"; cp "$target" "$copy"
-        if patch -s "$copy" < "$accepted" >/dev/null 2>&1; then
-            cp "$copy" "$target"; ok "merged .$name"; MERGED=$((MERGED + 1))
-        else
+        local copy="$tmpdir/copy"
+        if ! cp "$target" "$copy"; then
+            warn ".$name: merge copy failed, kept unchanged"
+            SKIPPED=$((SKIPPED + 1)); rm -rf "$tmpdir"; return 0
+        fi
+        if ! patch -s "$copy" < "$accepted" >/dev/null 2>&1; then
             warn ".$name: patch failed, kept unchanged"
+            SKIPPED=$((SKIPPED + 1))
+        elif cp "$copy" "$target"; then
+            ok "merged .$name"; MERGED=$((MERGED + 1))
+        else
+            warn ".$name: merge copy failed, kept unchanged"
             SKIPPED=$((SKIPPED + 1))
         fi
     else

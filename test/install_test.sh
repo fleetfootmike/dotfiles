@@ -92,6 +92,69 @@ printf 'a\nNEW\nc\n' > "$de2/repo"
     _merge_editor bashrc "$de2/repo" "$de2/target" ) >/dev/null 2>&1
 cmp -s "$de2/target" "$de2/orig"; check "editor-unresolved keeps original" $?
 
+# --- merge: per-hunk apply (merge_file) ---
+# 2-hunk fixture: changes at line 2 and line 12 (far enough apart that
+# the default 3-line diff context does not merge them into one hunk).
+mk_pair() {
+    { echo l1; echo OLD2; for i in $(seq 3 11); do echo "l$i"; done
+      echo OLD12; echo l13; echo l14; } > "$1/target"
+    { echo l1; echo NEW2; for i in $(seq 3 11); do echo "l$i"; done
+      echo NEW12; echo l13; echo l14; } > "$1/repo"
+}
+ans_file() { local f="$1"; shift; printf '%s\n' "$@" > "$f"; }
+
+# all yes -> target becomes byte-identical to repo
+d="$(mktemp -d)"; mk_pair "$d"; ans_file "$d/ans" y y
+# shellcheck disable=SC1090
+( . "$SCRIPT"; DOTFILES_INPUT="$d/ans" \
+    merge_file bashrc "$d/repo" "$d/target" ) >/dev/null 2>&1
+cmp -s "$d/target" "$d/repo"; check "merge all-yes yields repo version" $?
+
+# all no -> unchanged
+d="$(mktemp -d)"; mk_pair "$d"; cp "$d/target" "$d/orig"; ans_file "$d/ans" n n
+# shellcheck disable=SC1090
+( . "$SCRIPT"; DOTFILES_INPUT="$d/ans" \
+    merge_file bashrc "$d/repo" "$d/target" ) >/dev/null 2>&1
+cmp -s "$d/target" "$d/orig"; check "merge all-no leaves file unchanged" $?
+
+# mixed: accept hunk 1, skip hunk 2 -> NEW2 but OLD12
+d="$(mktemp -d)"; mk_pair "$d"; ans_file "$d/ans" y n
+# shellcheck disable=SC1090
+( . "$SCRIPT"; DOTFILES_INPUT="$d/ans" \
+    merge_file bashrc "$d/repo" "$d/target" ) >/dev/null 2>&1
+{ grep -q '^NEW2$' "$d/target" && grep -q '^OLD12$' "$d/target"; }
+check "merge mixed applies only accepted hunk" $?
+
+# quit before any accept -> unchanged
+d="$(mktemp -d)"; mk_pair "$d"; cp "$d/target" "$d/orig"; ans_file "$d/ans" q
+# shellcheck disable=SC1090
+( . "$SCRIPT"; DOTFILES_INPUT="$d/ans" \
+    merge_file bashrc "$d/repo" "$d/target" ) >/dev/null 2>&1
+cmp -s "$d/target" "$d/orig"; check "merge quit-first leaves file unchanged" $?
+
+# edit path: e hands off to $EDITOR (resolve stub -> repo side)
+d="$(mktemp -d)"; mk_pair "$d"; ans_file "$d/ans" e
+# shellcheck disable=SC1090
+( . "$SCRIPT"; EDITOR="$resolve_ed" DOTFILES_INPUT="$d/ans" \
+    merge_file bashrc "$d/repo" "$d/target" ) >/dev/null 2>&1
+cmp -s "$d/target" "$d/repo"; check "merge edit-path resolves via \$EDITOR" $?
+
+# accept hunk 1 then quit -> the accepted hunk lands, the rest does not
+d="$(mktemp -d)"; mk_pair "$d"; ans_file "$d/ans" y q
+# shellcheck disable=SC1090
+( . "$SCRIPT"; DOTFILES_INPUT="$d/ans" \
+    merge_file bashrc "$d/repo" "$d/target" ) >/dev/null 2>&1
+{ grep -q '^NEW2$' "$d/target" && grep -q '^OLD12$' "$d/target"; }
+check "merge accept-then-quit applies accepted hunk only" $?
+
+# accept hunk 1 then edit -> $EDITOR resolves the whole file, the y is dropped
+d="$(mktemp -d)"; mk_pair "$d"; ans_file "$d/ans" y e
+# shellcheck disable=SC1090
+( . "$SCRIPT"; EDITOR="$resolve_ed" DOTFILES_INPUT="$d/ans" \
+    merge_file bashrc "$d/repo" "$d/target" ) >/dev/null 2>&1
+cmp -s "$d/target" "$d/repo"
+check "merge edit-after-accept resolves whole file" $?
+
 # --- Task 3: prereqs (unit tests via sourcing) ---
 # all-missing, apt: every core tool prints its apt/special recipe
 # shellcheck disable=SC1090  # Source path is dynamic in test harness
