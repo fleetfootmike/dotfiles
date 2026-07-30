@@ -22,12 +22,6 @@ srcout="$( . "$SCRIPT" --check-only 2>&1; echo "DO_DEPLOY=$DO_DEPLOY" )"
 echo "$srcout" | grep -q "DO_DEPLOY=1"; check "sourcing does not run main" $?
 
 # --- Task 2: deploy ---
-stub_merge="$(mktemp)"; chmod +x "$stub_merge"
-cat > "$stub_merge" <<'STUB'
-#!/usr/bin/env bash
-echo "MERGED $1 <- $2" >> "$1"
-STUB
-
 # missing target -> installed
 th="$(mktemp -d)"
 bash "$SCRIPT" --deploy-only --home "$th" >/dev/null
@@ -40,17 +34,30 @@ cp "$HERE/screenrc" "$th/.screenrc"
 out="$(bash "$SCRIPT" --deploy-only --home "$th")"
 echo "$out" | grep -q ".screenrc up to date"; check "identical is up to date" $?
 
-# differing target + interactive + stub merge -> merge invoked
+# differing target + interactive + all-yes -> becomes the repo version
 printf 'local change\n' > "$th/.bash_aliases"
-DOTFILES_INTERACTIVE=1 DOTFILES_MERGE="$stub_merge" \
-    bash "$SCRIPT" --deploy-only --home "$th" >/dev/null
-grep -q "^MERGED" "$th/.bash_aliases"; check "differing target invokes merge" $?
+ans="$(mktemp)"; yes y | head -n 40 > "$ans"
+DOTFILES_INTERACTIVE=1 DOTFILES_INPUT="$ans" \
+    bash "$SCRIPT" --deploy-only --home "$th" >/dev/null 2>&1
+cmp -s "$HERE/bash_aliases" "$th/.bash_aliases"
+check "differing target merges to repo version (per-hunk yes)" $?
 
 # differing target + headless -> skipped, not clobbered
 th2="$(mktemp -d)"
 printf 'keep me\n' > "$th2/.bashrc"
 DOTFILES_INTERACTIVE=0 bash "$SCRIPT" --deploy-only --home "$th2" >/dev/null
 grep -q "keep me" "$th2/.bashrc"; check "headless differ is not clobbered" $?
+
+# merge deps missing -> differ is skipped, not clobbered
+th_np="$(mktemp -d)"; printf 'keep me\n' > "$th_np/.bashrc"
+# shellcheck disable=SC1090,SC2034  # DEST_HOME consumed by sourced deploy_file
+( . "$SCRIPT"
+  DEST_HOME="$th_np"
+  is_interactive() { return 0; }
+  tool_present() { [ "$1" != patch ]; }   # pretend patch is absent
+  deploy_file bashrc ) >/dev/null 2>&1
+grep -q '^keep me$' "$th_np/.bashrc"
+check "missing patch: differ is skipped not clobbered" $?
 
 # nonexistent --home -> clean error, non-zero exit
 bash "$SCRIPT" --deploy-only --home /no/such/dir-xyz >/dev/null 2>&1

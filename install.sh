@@ -27,9 +27,11 @@ Usage: install.sh [options]
   -h, --help      show this help
 
 Environment:
-  DOTFILES_MERGE        merge command for conflicts (default: vimdiff)
-  DOTFILES_INTERACTIVE  set to 1 or 0 to force or skip the merge prompt
-                        (default: auto-probe for a tty)
+  DOTFILES_INTERACTIVE  set to 1 or 0 to force or skip the interactive
+                        merge (default: auto-probe for a tty). When a
+                        deployed file differs, the merge walks the diff one
+                        hunk at a time; press e at any hunk to resolve the
+                        whole file in \$EDITOR with conflict markers.
 EOF
 }
 
@@ -39,7 +41,6 @@ DOTFILES=(bashrc bash_profile bash_aliases screenrc markdownlint.json \
     perlenv_hook)
 
 INSTALLED=0; UPTODATE=0; MERGED=0; SKIPPED=0
-DOTFILES_MERGE="${DOTFILES_MERGE:-vimdiff}"
 
 tool_present() { command -v "$1" >/dev/null 2>&1; }
 
@@ -163,18 +164,14 @@ deploy_file() {
     elif cmp -s "$src" "$target" 2>/dev/null; then
         info ".$name up to date"; UPTODATE=$((UPTODATE + 1))
     else
-        local mergecmd="${DOTFILES_MERGE%% *}"
-        if ! tool_present "$mergecmd"; then
-            warn ".$name differs; merge tool '$mergecmd' not found, skipping"
-            SKIPPED=$((SKIPPED + 1))
-        elif ! is_interactive; then
+        if ! is_interactive; then
             warn ".$name differs; no tty, skipping (run interactively to merge)"
             SKIPPED=$((SKIPPED + 1))
+        elif ! tool_present diff || ! tool_present patch; then
+            warn ".$name differs; need diff and patch to merge, skipping"
+            SKIPPED=$((SKIPPED + 1))
         else
-            info "merging .$name with $DOTFILES_MERGE"
-            # shellcheck disable=SC2086
-            $DOTFILES_MERGE "$target" "$src"
-            ok "merged .$name"; MERGED=$((MERGED + 1))
+            merge_file "$name" "$src" "$target"
         fi
     fi
 }
