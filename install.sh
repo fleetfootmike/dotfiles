@@ -27,9 +27,11 @@ Usage: install.sh [options]
   -h, --help      show this help
 
 Environment:
-  DOTFILES_MERGE        merge command for conflicts (default: vimdiff)
-  DOTFILES_INTERACTIVE  set to 1 or 0 to force or skip the merge prompt
-                        (default: auto-probe for a tty)
+  DOTFILES_INTERACTIVE  set to 1 or 0 to force or skip the interactive
+                        merge (default: auto-probe for a tty). When a
+                        deployed file differs, the merge walks the diff one
+                        hunk at a time; press e at any hunk to resolve the
+                        whole file in \$EDITOR with conflict markers.
 EOF
 }
 
@@ -39,7 +41,6 @@ DOTFILES=(bashrc bash_profile bash_aliases screenrc markdownlint.json \
     perlenv_hook)
 
 INSTALLED=0; UPTODATE=0; MERGED=0; SKIPPED=0
-DOTFILES_MERGE="${DOTFILES_MERGE:-vimdiff}"
 
 tool_present() { command -v "$1" >/dev/null 2>&1; }
 
@@ -50,6 +51,106 @@ is_interactive() {
     fi
     # shellcheck disable=SC2217
     { true < /dev/tty; } 2>/dev/null
+}
+
+# _merge_editor <name> <src> <target>
+# Render target (yours) vs src (repo) as one git-style conflict-marked
+# file, open it in $EDITOR, and adopt the result only if every marker was
+# resolved. Updates the global MERGED / SKIPPED counters. Returns 0.
+_merge_editor() {
+    local name="$1" src="$2" target="$3"
+    local nl=$'\n' tmp og ng cg
+    tmp="$(mktemp)"
+    og="<<<<<<< yours (.$name)$nl%<=======$nl>>>>>>> repo$nl"
+    ng="<<<<<<< yours (.$name)$nl=======$nl%>>>>>>>> repo$nl"
+    cg="<<<<<<< yours (.$name)$nl%<=======$nl%>>>>>>>> repo$nl"
+    diff --old-group-format="$og" --new-group-format="$ng" \
+         --changed-group-format="$cg" --unchanged-group-format='%=' \
+         "$target" "$src" > "$tmp" 2>/dev/null || true
+    "${EDITOR:-vi}" "$tmp" || true
+    if grep -qE '^(<<<<<<< |>>>>>>> |=======$)' "$tmp"; then
+        warn ".$name: conflict markers unresolved, kept unchanged"
+        SKIPPED=$((SKIPPED + 1))
+    elif cp "$tmp" "$target"; then
+        ok "merged .$name"; MERGED=$((MERGED + 1))
+    else
+        warn ".$name: merge copy failed, kept unchanged"
+        SKIPPED=$((SKIPPED + 1))
+    fi
+    rm -f "$tmp"
+}
+
+# merge_file <name> <src> <target>
+# Walk the diff of target (yours) -> src (repo) hunk by hunk, prompting
+# [y]es/[n]o/[e]dit/[q]uit. Accepted hunks are applied with patch to a
+# copy of the target, which replaces it only on success. 'e' hands off to
+# _merge_editor. Answers come from $DOTFILES_INPUT (default /dev/tty).
+# Updates the global MERGED / SKIPPED counters. Returns 0.
+merge_file() {
+    local name="$1" src="$2" target="$3"
+    local input="${DOTFILES_INPUT:-/dev/tty}"
+    local tmpdir; tmpdir="$(mktemp -d)"
+
+    diff -u "$target" "$src" | awk -v dir="$tmpdir" '
+        /^--- / && n==0 { print > (dir "/header"); next }
+        /^\+\+\+ / && n==0 { print >> (dir "/header"); next }
+        /^@@ / { n++; hf = sprintf("%s/hunk.%03d", dir, n); print > hf; next }
+        n > 0 { print >> hf }
+    ' || true
+
+    info "merging .$name (per hunk)"
+    local accepted="$tmpdir/accepted.patch"
+    if [ ! -f "$tmpdir/header" ]; then
+        warn ".$name: no diff header, kept unchanged"
+        SKIPPED=$((SKIPPED + 1)); rm -rf "$tmpdir"; return 0
+    fi
+    if ! cp "$tmpdir/header" "$accepted"; then
+        warn ".$name: cannot stage patch, kept unchanged"
+        SKIPPED=$((SKIPPED + 1)); rm -rf "$tmpdir"; return 0
+    fi
+
+    if ! exec 3< "$input"; then
+        warn ".$name: cannot read answers, kept unchanged"
+        SKIPPED=$((SKIPPED + 1)); rm -rf "$tmpdir"; return 0
+    fi
+    local hf ans any=0 editmode=0
+    for hf in "$tmpdir"/hunk.*; do
+        [ -e "$hf" ] || break
+        cat "$hf"
+        printf 'Apply this hunk? [y]es / [n]o / [e]dit / [q]uit '
+        IFS= read -r ans <&3 || ans=""
+        ans="$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]' | cut -c1)"
+        case "$ans" in
+            y) cat "$hf" >> "$accepted"; any=1 ;;
+            e) editmode=1; break ;;
+            q) break ;;
+            *) : ;;
+        esac
+    done
+    exec 3<&-
+
+    if [ "$editmode" = 1 ]; then
+        rm -rf "$tmpdir"; _merge_editor "$name" "$src" "$target"; return 0
+    fi
+    if [ "$any" = 1 ]; then
+        local copy="$tmpdir/copy"
+        if ! cp "$target" "$copy"; then
+            warn ".$name: merge copy failed, kept unchanged"
+            SKIPPED=$((SKIPPED + 1)); rm -rf "$tmpdir"; return 0
+        fi
+        if ! patch -s "$copy" < "$accepted" >/dev/null 2>&1; then
+            warn ".$name: patch failed, kept unchanged"
+            SKIPPED=$((SKIPPED + 1))
+        elif cp "$copy" "$target"; then
+            ok "merged .$name"; MERGED=$((MERGED + 1))
+        else
+            warn ".$name: merge copy failed, kept unchanged"
+            SKIPPED=$((SKIPPED + 1))
+        fi
+    else
+        info ".$name kept unchanged"; SKIPPED=$((SKIPPED + 1))
+    fi
+    rm -rf "$tmpdir"; return 0
 }
 
 deploy_file() {
@@ -63,18 +164,14 @@ deploy_file() {
     elif cmp -s "$src" "$target" 2>/dev/null; then
         info ".$name up to date"; UPTODATE=$((UPTODATE + 1))
     else
-        local mergecmd="${DOTFILES_MERGE%% *}"
-        if ! tool_present "$mergecmd"; then
-            warn ".$name differs; merge tool '$mergecmd' not found, skipping"
-            SKIPPED=$((SKIPPED + 1))
-        elif ! is_interactive; then
+        if ! is_interactive; then
             warn ".$name differs; no tty, skipping (run interactively to merge)"
             SKIPPED=$((SKIPPED + 1))
+        elif ! tool_present diff || ! tool_present patch; then
+            warn ".$name differs; need diff and patch to merge, skipping"
+            SKIPPED=$((SKIPPED + 1))
         else
-            info "merging .$name with $DOTFILES_MERGE"
-            # shellcheck disable=SC2086
-            $DOTFILES_MERGE "$target" "$src"
-            ok "merged .$name"; MERGED=$((MERGED + 1))
+            merge_file "$name" "$src" "$target"
         fi
     fi
 }
