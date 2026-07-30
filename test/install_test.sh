@@ -56,6 +56,42 @@ grep -q "keep me" "$th2/.bashrc"; check "headless differ is not clobbered" $?
 bash "$SCRIPT" --deploy-only --home /no/such/dir-xyz >/dev/null 2>&1
 check "nonexistent --home errors" "$([ $? -ne 0 ] && echo 0 || echo 1)"
 
+# --- merge: $EDITOR fallback (_merge_editor) ---
+# resolve stub: keep the repo (right) side, drop yours block + markers
+resolve_ed="$(mktemp)"; chmod +x "$resolve_ed"
+cat > "$resolve_ed" <<'ED'
+#!/usr/bin/env bash
+awk '
+  /^<<<<<<< / { d=1; next }
+  /^=======$/ { d=0; next }
+  /^>>>>>>> / { next }
+  !d { print }
+' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
+ED
+# noop stub: leave the file (and its markers) untouched
+noop_ed="$(mktemp)"; chmod +x "$noop_ed"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$noop_ed"
+
+# resolve -> target becomes the repo version, no markers left
+de="$(mktemp -d)"
+printf 'a\nOLD\nc\n' > "$de/target"; printf 'a\nNEW\nc\n' > "$de/repo"
+# shellcheck disable=SC1090
+( . "$SCRIPT"; EDITOR="$resolve_ed" \
+    _merge_editor bashrc "$de/repo" "$de/target" ) >/dev/null 2>&1
+cmp -s "$de/target" "$de/repo"; check "editor-resolve adopts repo side" $?
+grep -q '<<<<<<<' "$de/target"
+check "editor-resolve leaves no markers" \
+    "$([ $? -ne 0 ] && echo 0 || echo 1)"
+
+# unresolved markers -> target left exactly as it was
+de2="$(mktemp -d)"
+printf 'a\nOLD\nc\n' > "$de2/target"; cp "$de2/target" "$de2/orig"
+printf 'a\nNEW\nc\n' > "$de2/repo"
+# shellcheck disable=SC1090
+( . "$SCRIPT"; EDITOR="$noop_ed" \
+    _merge_editor bashrc "$de2/repo" "$de2/target" ) >/dev/null 2>&1
+cmp -s "$de2/target" "$de2/orig"; check "editor-unresolved keeps original" $?
+
 # --- Task 3: prereqs (unit tests via sourcing) ---
 # all-missing, apt: every core tool prints its apt/special recipe
 # shellcheck disable=SC1090  # Source path is dynamic in test harness

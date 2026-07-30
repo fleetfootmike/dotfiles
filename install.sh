@@ -52,6 +52,33 @@ is_interactive() {
     { true < /dev/tty; } 2>/dev/null
 }
 
+# _merge_editor <name> <src> <target>
+# Render target (yours) vs src (repo) as one git-style conflict-marked
+# file, open it in $EDITOR, and adopt the result only if every marker was
+# resolved. Updates the global MERGED / SKIPPED counters. Returns 0.
+_merge_editor() {
+    local name="$1" src="$2" target="$3"
+    local nl=$'\n' tmp og ng cg
+    tmp="$(mktemp)"
+    og="<<<<<<< yours (.$name)$nl%<=======$nl>>>>>>> repo$nl"
+    ng="<<<<<<< yours (.$name)$nl=======$nl%>>>>>>>> repo$nl"
+    cg="<<<<<<< yours (.$name)$nl%<=======$nl%>>>>>>>> repo$nl"
+    diff --old-group-format="$og" --new-group-format="$ng" \
+         --changed-group-format="$cg" --unchanged-group-format='%=' \
+         "$target" "$src" > "$tmp" 2>/dev/null || true
+    "${EDITOR:-vi}" "$tmp" || true
+    if grep -qE '^(<<<<<<< |>>>>>>> |=======$)' "$tmp"; then
+        warn ".$name: conflict markers unresolved, kept unchanged"
+        SKIPPED=$((SKIPPED + 1))
+    elif cp "$tmp" "$target"; then
+        ok "merged .$name"; MERGED=$((MERGED + 1))
+    else
+        warn ".$name: merge copy failed, kept unchanged"
+        SKIPPED=$((SKIPPED + 1))
+    fi
+    rm -f "$tmp"
+}
+
 deploy_file() {
     local name="$1" src="$REPO_ROOT/$name" target="$DEST_HOME/.$name"
     if [ ! -e "$target" ]; then
