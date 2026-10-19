@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Test harness for perlenv_hook. Run: bash test/perlenv_hook_test.sh
 set -u
+# start clean: the caller's shell may carry hook settings or state
+unset PERLENV_DEFAULT PERLENV_ASSUME PERLENV_ALLOW_FILE PERL5LIB CARTON \
+    PERL_VERSION _PERLENV_ACTIVE_ROOT _PERLENV_DECLINED _PERLENV_LAST_PWD \
+    _PERLENV_LAST_ROOT _PERLENV_SAVED_PERL5LIB _PERLENV_SAVED_PERL5LIB_SET \
+    _PERLENV_SAVED_CARTON _PERLENV_SAVED_CARTON_SET _PERLENV_SWITCHED
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$HERE/perlenv_hook"
 pass=0; fail=0
