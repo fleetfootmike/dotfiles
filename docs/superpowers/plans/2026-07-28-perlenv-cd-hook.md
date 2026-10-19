@@ -40,7 +40,10 @@ Every task's requirements implicitly include these:
   so it is safe under a caller's `set -u`.
 - Perl-version **normalization is only for the detector**. The cd hook
   passes `PERL_VERSION` to `perlbrew use` **as written** (trust the user's
-  perlbrew name), never normalized.
+  perlbrew name), never normalized. It resolves the name the same way
+  `perlbrew use` does: as written, then with a `perl-` prefix, keeping
+  any `@lib` suffix. (Amended 2026-10-19: the original exact-match check
+  missed bare `5.36.3` and choked on the padded `perlbrew list` output.)
 - A repo's `.perlenv` is sourced **only** when present in the allow-list
   with a matching hash.
 - `perlenv_hook` must pass `shellcheck -S warning` clean.

@@ -45,7 +45,10 @@ On landing in a git repo whose root differs from the last one processed:
     the `.perlenv` (setting `CARTON`, `PERL5LIB`, and `PERL_VERSION` if
     present).
   - `PERL_VERSION` set and that perlbrew perl is installed: `perlbrew use
-    <version>` for the current shell.
+    <version>` for the current shell. `PERL_VERSION` takes any name
+    `perlbrew use` accepts: `perl-5.36.3`, bare `5.36.3`, an alias, an
+    `--as` name, or any of those with `@lib`. It is matched as written
+    first, then with a `perl-` prefix.
   - `PERL_VERSION` set but not installed: warn and print the exact
     `perlbrew install perl-X.Y.Z` command; stay on the current perl.
   - `.perlenv` present but no `PERL_VERSION`, in a Perl repo: warn and

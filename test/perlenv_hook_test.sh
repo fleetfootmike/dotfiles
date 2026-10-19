@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Test harness for perlenv_hook. Run: bash test/perlenv_hook_test.sh
 set -u
+# start clean: the caller's shell may carry hook settings or state
+unset PERLENV_DEFAULT PERLENV_ASSUME PERLENV_ALLOW_FILE PERL5LIB CARTON \
+    PERL_VERSION _PERLENV_ACTIVE_ROOT _PERLENV_DECLINED _PERLENV_LAST_PWD \
+    _PERLENV_LAST_ROOT _PERLENV_SAVED_PERL5LIB _PERLENV_SAVED_PERL5LIB_SET \
+    _PERLENV_SAVED_CARTON _PERLENV_SAVED_CARTON_SET _PERLENV_SWITCHED
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOK="$HERE/perlenv_hook"
 pass=0; fail=0
@@ -141,7 +146,13 @@ check "perlenv-init refuses to overwrite existing .perlenv" \
 # stub perlbrew; record the last use/off to a file the PARENT reads
 perlbrew() {
     case "${1:-}" in
-        list) printf '  perl-5.34.0\n* perl-5.36.0\n  perl-5.20.0\n' ;;
+        # --no-decoration: bare names, as real perlbrew prints them. Includes
+        # a cperl build, an --as name, an alias and a local::lib.
+        list)
+            [ -n "${PB_LIST_FAIL:-}" ] && return 1
+            [ "${2:-}" = --no-decoration ] || return 1
+            printf '%s\n' perl-5.34.0 perl-5.36.0 perl-5.20.0 \
+                cperl-5.30.0 perl-5.36-thr 5.36 perl-5.36.0@dev ;;
         use)  echo "$2" > "$PB" ;;
         off)  echo off > "$PB" ;;
     esac
@@ -171,6 +182,53 @@ printf 'export PERL_VERSION=perl-5.99.0\n' > "$r/.perlenv"
 ( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
   cd "$r" && _perlenv_chpwd 2>/dev/null )
 [ ! -s "$PB" ]; check "enter: uninstalled version does not perlbrew use" $?
+
+# bare PERL_VERSION (no perl- prefix) still matches perlbrew's perl-5.MM.PP
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL_VERSION=5.36.0\n' > "$r/.perlenv"
+( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+  cd "$r" && _perlenv_chpwd 2>/dev/null )
+eq "$(cat "$PB")" perl-5.36.0 "enter: bare 5.36.0 uses perl-5.36.0"
+
+# bare uninstalled PERL_VERSION -> install hint carries the perl- prefix
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL_VERSION=5.99.0\n' > "$r/.perlenv"
+msg=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+       cd "$r" && _perlenv_chpwd 2>&1 >/dev/null )
+case "$msg" in *"perlbrew install perl-5.99.0"*) rc=0 ;; *) rc=1 ;; esac
+check "enter: bare uninstalled hint says perlbrew install perl-5.99.0" $rc
+
+# names perlbrew already knows pass through as written, like perlbrew use
+used_for() {
+    local r s; PB=$(mktemp); s=$(mktemp -u); r=$(mkrepo)
+    printf 'export PERL_VERSION=%s\n' "$1" > "$r/.perlenv"
+    ( export PERLENV_ALLOW_FILE="$s" PERLENV_ASSUME=yes
+      cd "$r" && _perlenv_chpwd 2>/dev/null )
+    cat "$PB"
+}
+eq "$(used_for cperl-5.30.0)"    cperl-5.30.0    "enter: cperl name as written"
+eq "$(used_for perl-5.36-thr)"   perl-5.36-thr   "enter: --as name as written"
+eq "$(used_for 5.36)"            5.36            "enter: alias as written"
+eq "$(used_for perl-5.36.0@dev)" perl-5.36.0@dev "enter: lib name as written"
+eq "$(used_for 5.36.0@dev)"      perl-5.36.0@dev "enter: bare lib gets perl-"
+
+# already-prefixed uninstalled name -> hint is not double-prefixed
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL_VERSION=perl-5.99.0\n' > "$r/.perlenv"
+msg=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+       cd "$r" && _perlenv_chpwd 2>&1 >/dev/null )
+case "$msg" in *"perlbrew install perl-5.99.0"*) rc=0 ;; *) rc=1 ;; esac
+check "enter: prefixed uninstalled hint says perlbrew install perl-5.99.0" $rc
+
+# perlbrew list failing is not reported as "not installed"
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+msg=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes PB_LIST_FAIL=1
+       cd "$r" && _perlenv_chpwd 2>&1 >/dev/null )
+[ ! -s "$PB" ]; check "list fails: no perlbrew use" $?
+case "$msg" in *"perlbrew install"*) rc=1 ;; *"perlbrew list failed"*) rc=0 ;;
+    *) rc=1 ;; esac
+check "list fails: warns list failed, no install hint" $rc
 
 # declined allow -> .perlenv not sourced
 PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)

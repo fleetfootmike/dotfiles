@@ -17,19 +17,22 @@ Personal dotfiles: bash shell setup plus Perl-development tooling
   root so `markdownlint` auto-discovers the config when the pre-commit hook
   lints this repo's own `.md` files.
 - `install.sh` (repo root) deploys the config files into `$HOME` by
-  **copy** (adding the leading dot), launching a merge tool (`vimdiff`
-  by default, override with `$DOTFILES_MERGE`) when a target already
-  exists and differs and a tty is available, skipping rather than
-  overwriting otherwise. `perlenv` is never deployed. It also runs a
+  **copy** (adding the leading dot). That includes `perlenv_hook` →
+  `~/.perlenv_hook`, the bash cd hook that `bashrc` sources to switch
+  perlbrew perls per repo. When a target already exists and differs and a
+  tty is available, it walks the diff one hunk at a time (y/n/e/q, where
+  `e` resolves the whole file in `$EDITOR`); otherwise it skips rather
+  than overwriting. `perlenv` is never deployed. It also runs a
   report-only prereq check that prints per-tool install commands but
   never installs anything. Run `install.sh --help` for options.
   `$DOTFILES_INTERACTIVE` (1 or 0) forces or skips the merge prompt.
 - `bin/` is untracked; scripts there aren't part of the committed repo yet.
-- No CI. The one test is `test/install_test.sh` (run
-  `bash test/install_test.sh`), covering `install.sh`.
+- No CI. There are two tests: `bash test/install_test.sh` (covers
+  `install.sh`) and `bash test/perlenv_hook_test.sh` (covers
+  `perlenv_hook`).
 - Lint shell scripts with `shellcheck`, e.g.
-  `shellcheck bashrc bash_profile bash_aliases bin/*`. The files here carry
-  no `.sh` extension, so pass them explicitly.
+  `shellcheck bashrc bash_profile bash_aliases perlenv_hook bin/*`. The
+  files here carry no `.sh` extension, so pass them explicitly.
 
 ## git/hooks/pre-commit
 

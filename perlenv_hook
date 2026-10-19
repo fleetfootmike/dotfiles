@@ -3,7 +3,8 @@
 # .perlenv. Sourced from ~/.bashrc. Interactive shells only. No set -e/-u.
 
 # Normalize a raw perl version token to perlbrew form perl-5.MM.PP.
-# Used ONLY by the detector; the cd hook uses PERL_VERSION as written.
+# Used ONLY by the detector; the cd hook resolves PERL_VERSION the way
+# perlbrew use does (see _perlenv_resolve_perl).
 _perlenv_normalize_version() {
     local v="$1" maj rest min pat
     v="${v#perl-}"; v="${v#v}"
@@ -170,13 +171,29 @@ $1
 "*) return 0 ;; *) return 1 ;; esac
 }
 
-_perlenv_perl_installed() {
-    perlbrew list 2>/dev/null | sed 's/^[* ]*//' | grep -qxF "$1"
+# Resolve a PERL_VERSION the way `perlbrew use` does (App::perlbrew's
+# resolve_installation_name): split off any @lib, try the perl name as
+# written, then perl-<name>. Echo the resolved name.
+# rc 1 = not installed, rc 2 = perlbrew list failed.
+_perlenv_resolve_perl() {
+    local want="$1" list p lib="" name
+    list=$(perlbrew list --no-decoration 2>/dev/null) || return 2
+    [ -n "$list" ] || return 2
+    case "$want" in
+        *@*) p="${want%%@*}"; lib="@${want#*@}" ;;
+        *) p="$want" ;;
+    esac
+    for name in "$p" "perl-$p"; do
+        if printf '%s\n' "$list" | grep -qxF "$name$lib"; then
+            printf '%s\n' "$name$lib"; return 0
+        fi
+    done
+    return 1
 }
 
 # snapshot env, source the .perlenv, switch perl
 _perlenv_apply() {
-    local root="$1" pe="$2" pv
+    local root="$1" pe="$2" pv name rc
     _PERLENV_SAVED_PERL5LIB="${PERL5LIB-}"
     _PERLENV_SAVED_PERL5LIB_SET="${PERL5LIB+1}"
     _PERLENV_SAVED_CARTON="${CARTON-}"
@@ -191,14 +208,20 @@ _perlenv_apply() {
     # perlbrew absent? skip the switch quietly. install.sh's prereq check
     # already yells about installing perlbrew, so no second warning here.
     command -v perlbrew >/dev/null 2>&1 || return 0
-    if _perlenv_perl_installed "$pv"; then
-        perlbrew use "$pv" >/dev/null 2>&1
-        _PERLENV_SWITCHED=1
-    else
-        printf '!!! perlenv: .perlenv wants %s (not installed). To build it:\n' \
-            "$pv" >&2
-        printf '      perlbrew install %s\n' "$pv" >&2
-    fi
+    name=$(_perlenv_resolve_perl "$pv"); rc=$?
+    case $rc in
+        0)
+            perlbrew use "$name" >/dev/null 2>&1
+            _PERLENV_SWITCHED=1 ;;
+        1)
+            printf '!!! perlenv: .perlenv wants %s (not installed). To build it:\n' \
+                "$pv" >&2
+            case "$pv" in perl-*) ;; *) pv="perl-$pv" ;; esac
+            printf '      perlbrew install %s\n' "$pv" >&2 ;;
+        *)
+            printf '!!! perlenv: perlbrew list failed; not switching to %s\n' \
+                "$pv" >&2 ;;
+    esac
 }
 
 # restore env snapshot and revert perl to the default
