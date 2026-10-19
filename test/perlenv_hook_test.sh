@@ -141,7 +141,8 @@ check "perlenv-init refuses to overwrite existing .perlenv" \
 # stub perlbrew; record the last use/off to a file the PARENT reads
 perlbrew() {
     case "${1:-}" in
-        list) printf '  perl-5.34.0\n* perl-5.36.0\n  perl-5.20.0\n' ;;
+        # real perlbrew pads each name with trailing spaces
+        list) printf '  perl-5.34.0     \n* perl-5.36.0     \n  perl-5.20.0     \n' ;;
         use)  echo "$2" > "$PB" ;;
         off)  echo off > "$PB" ;;
     esac
@@ -171,6 +172,21 @@ printf 'export PERL_VERSION=perl-5.99.0\n' > "$r/.perlenv"
 ( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
   cd "$r" && _perlenv_chpwd 2>/dev/null )
 [ ! -s "$PB" ]; check "enter: uninstalled version does not perlbrew use" $?
+
+# bare PERL_VERSION (no perl- prefix) still matches perlbrew's perl-5.MM.PP
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL_VERSION=5.36.0\n' > "$r/.perlenv"
+( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+  cd "$r" && _perlenv_chpwd 2>/dev/null )
+eq "$(cat "$PB")" perl-5.36.0 "enter: bare 5.36.0 uses perl-5.36.0"
+
+# bare uninstalled PERL_VERSION -> install hint carries the perl- prefix
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'export PERL_VERSION=5.99.0\n' > "$r/.perlenv"
+msg=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+       cd "$r" && _perlenv_chpwd 2>&1 >/dev/null )
+case "$msg" in *"perlbrew install perl-5.99.0"*) rc=0 ;; *) rc=1 ;; esac
+check "enter: bare uninstalled hint says perlbrew install perl-5.99.0" $rc
 
 # declined allow -> .perlenv not sourced
 PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)

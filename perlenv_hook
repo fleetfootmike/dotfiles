@@ -3,7 +3,7 @@
 # .perlenv. Sourced from ~/.bashrc. Interactive shells only. No set -e/-u.
 
 # Normalize a raw perl version token to perlbrew form perl-5.MM.PP.
-# Used ONLY by the detector; the cd hook uses PERL_VERSION as written.
+# Used by the detector and by the cd hook on PERL_VERSION.
 _perlenv_normalize_version() {
     local v="$1" maj rest min pat
     v="${v#perl-}"; v="${v#v}"
@@ -171,7 +171,8 @@ $1
 }
 
 _perlenv_perl_installed() {
-    perlbrew list 2>/dev/null | sed 's/^[* ]*//' | grep -qxF "$1"
+    perlbrew list 2>/dev/null | sed 's/^[* ]*//; s/[[:space:]]*$//' |
+        grep -qxF "$1"
 }
 
 # snapshot env, source the .perlenv, switch perl
@@ -188,6 +189,8 @@ _perlenv_apply() {
     . "$pe"
     _PERLENV_ACTIVE_ROOT="$root"
     pv=$(_perlenv_parse_version "$pe") || return 0
+    # perlbrew names perls perl-5.MM.PP; accept 5.36.3 etc. as written
+    pv=$(_perlenv_normalize_version "$pv" || printf '%s' "$pv")
     # perlbrew absent? skip the switch quietly. install.sh's prereq check
     # already yells about installing perlbrew, so no second warning here.
     command -v perlbrew >/dev/null 2>&1 || return 0
