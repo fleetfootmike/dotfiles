@@ -26,13 +26,12 @@ Personal dotfiles: bash shell setup plus Perl-development tooling
   report-only prereq check that prints per-tool install commands but
   never installs anything. Run `install.sh --help` for options.
   `$DOTFILES_INTERACTIVE` (1 or 0) forces or skips the merge prompt.
-- `bin/` is untracked; scripts there aren't part of the committed repo yet.
 - No CI. There are two tests: `bash test/install_test.sh` (covers
   `install.sh`) and `bash test/perlenv_hook_test.sh` (covers
   `perlenv_hook`).
 - Lint shell scripts with `shellcheck`, e.g.
-  `shellcheck bashrc bash_profile bash_aliases perlenv_hook bin/*`. The
-  files here carry no `.sh` extension, so pass them explicitly.
+  `shellcheck bashrc bash_profile bash_aliases perlenv_hook`. The files
+  here carry no `.sh` extension, so pass them explicitly.
 
 ## git/hooks/pre-commit
 
