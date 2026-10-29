@@ -36,15 +36,6 @@ t3=$(mktemp -d); touch "$t3/package.json"
 _perlenv_is_perl_repo "$t3"; check "non-perl -> not a perl repo" \
     "$([ $? -ne 0 ] && echo 0 || echo 1)"
 
-# --- Task 1: parse PERL_VERSION ---
-t4=$(mktemp -d)
-printf 'export CARTON="carton exec "\nexport PERL_VERSION=perl-5.36.0\n' > "$t4/.perlenv"
-eq "$(_perlenv_parse_version "$t4/.perlenv")" perl-5.36.0 "parse PERL_VERSION"
-printf '# export PERL_VERSION=perl-5.10.0\n' > "$t4/commented"
-_perlenv_parse_version "$t4/commented" >/dev/null 2>&1
-check "parse ignores commented PERL_VERSION" \
-    "$([ $? -ne 0 ] && echo 0 || echo 1)"
-
 # --- Task 2: detector ---
 d=$(mktemp -d); mkdir -p "$d/lib"
 printf 'package X;\nuse 5.010;\n1;\n' > "$d/lib/X.pm"
@@ -153,7 +144,8 @@ perlbrew() {
             [ "${2:-}" = --no-decoration ] || return 1
             printf '%s\n' perl-5.34.0 perl-5.36.0 perl-5.20.0 \
                 cperl-5.30.0 perl-5.36-thr 5.36 perl-5.36.0@dev ;;
-        use)  echo "$2" > "$PB" ;;
+        use)  [ -n "${PB_USE_FAIL:-}" ] && return 1
+              echo "$2" > "$PB" ;;
         off)  echo off > "$PB" ;;
     esac
 }
@@ -289,6 +281,80 @@ p5=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes; export PERL5LIB=pre
       cd "$r" && _perlenv_chpwd
       cd "$out" && _perlenv_chpwd; printf '%s' "${PERL5LIB:-<unset>}" )
 eq "$p5" preexisting "no PERL_VERSION: PERL5LIB still restored on leave"
+
+# --- S5: a .perlenv can't clobber the hook's own locals ---
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf 'root=/elsewhere\npe=/nonexistent\nexport PERL_VERSION=perl-5.36.0\n' \
+    > "$r/.perlenv"
+act=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+       cd "$r" && _perlenv_chpwd 2>/dev/null; printf '%s' "$_PERLENV_ACTIVE_ROOT" )
+eq "$(cat "$PB")" perl-5.36.0 "S5: root=/pe= in .perlenv: still switches"
+eq "$act" "$(git -C "$r" rev-parse --show-toplevel)" \
+    "S5: root=/pe= in .perlenv: active root intact"
+
+# --- S6: perlbrew must be the shell function; use failures not recorded ---
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); bin=$(mktemp -d)
+printf '#!/bin/sh\n[ "$1" = use ] && echo BINARY-USE > "$PB"\n' > "$bin/perlbrew"
+printf '[ "$1" = list ] && echo perl-5.36.0\n' >> "$bin/perlbrew"
+chmod +x "$bin/perlbrew"
+printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+( unset -f perlbrew; export PATH="$bin:$PATH" PB
+  export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+  cd "$r" && _perlenv_chpwd 2>/dev/null )
+[ ! -s "$PB" ]; check "S6: bare perlbrew binary is never asked to use" $?
+
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+msg=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes PB_USE_FAIL=1
+       cd "$r" && _perlenv_chpwd 2>&1 >/dev/null
+       printf 'SWITCHED=%s\n' "${_PERLENV_SWITCHED:-}"
+       unset PB_USE_FAIL
+       cd "$out" && _perlenv_chpwd )
+case "$msg" in *"SWITCHED=1"*) rc=1 ;; *) rc=0 ;; esac
+check "S6: failed perlbrew use is not recorded as switched" $rc
+case "$msg" in *"perlbrew use perl-5.36.0 failed"*) rc=0 ;; *) rc=1 ;; esac
+check "S6: failed perlbrew use warns" $rc
+[ ! -s "$PB" ]; check "S6: leaving after a failed use runs no perlbrew off" $?
+
+# --- S7: PERL_VERSION comes from the shell after sourcing ---
+eq "$(used_for 'perl-5.36.0; export FOO=1')" perl-5.36.0 \
+    "S7: PERL_VERSION with a second statement on the line"
+eq "$(used_for '${PERL_VERSION:-perl-5.36.0}')" perl-5.36.0 \
+    "S7: PERL_VERSION from a default expansion"
+
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+v=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes PERL_VERSION=outer
+     cd "$r" && _perlenv_chpwd
+     cd "$out" && _perlenv_chpwd; printf '%s' "${PERL_VERSION-<unset>}" )
+eq "$(cat "$PB")" off "S7: inherited PERL_VERSION does not mask .perlenv's"
+eq "$v" outer "S7: leave restores PERL_VERSION"
+
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
+printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+v=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+     cd "$r" && _perlenv_chpwd
+     cd "$out" && _perlenv_chpwd; printf '%s' "${PERL_VERSION-<unset>}" )
+eq "$v" "<unset>" "S7: leave unsets PERL_VERSION it set"
+
+PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo)
+printf '# export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+  cd "$r" && _perlenv_chpwd 2>/dev/null )
+[ ! -s "$PB" ]; check "S7: commented-out PERL_VERSION switches nothing" $?
+
+# --- S8: a dangling .perlenv symlink is never written through ---
+d=$(mktemp -d); r="$d/repo"; mkdir "$r"
+( cd "$r" && git init -q ); touch "$r/cpanfile"
+ln -s ../victim "$r/.perlenv"
+( cd "$r" && perlenv-init >/dev/null 2>&1 )
+rc=$?
+[ "$rc" -ne 0 ] && [ ! -e "$d/victim" ]
+check "S8: perlenv-init refuses a dangling .perlenv symlink" $?
+store=$(mktemp -u)
+( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
+  cd "$r" && _perlenv_chpwd >/dev/null 2>&1 )
+[ ! -e "$d/victim" ]; check "S8: cd hook does not create the symlink target" $?
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]
