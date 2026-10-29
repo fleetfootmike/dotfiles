@@ -45,12 +45,15 @@ function typeof () {
         Dockerfile*) echo dockerfile; exit;;
     esac
 
-    # for files with no extension, lets look at the shbang line
+    # for files with no extension, lets look at the shbang line, or (for
+    # sourced files with no shbang) a "shellcheck shell=bash" directive
     shbang=$(head -1 "$1")
     case $shbang in
         '#!'*perl )
             echo perl; exit ;;
         '#!'*bash )
+            echo bash; exit ;;
+        '# shellcheck shell=bash' | '# shellcheck shell=bash '* )
             echo bash; exit ;;
     esac
 

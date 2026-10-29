@@ -26,9 +26,9 @@ Personal dotfiles: bash shell setup plus Perl-development tooling
   report-only prereq check that prints per-tool install commands but
   never installs anything. Run `install.sh --help` for options.
   `$DOTFILES_INTERACTIVE` (1 or 0) forces or skips the merge prompt.
-- No CI. There are two tests: `bash test/install_test.sh` (covers
-  `install.sh`) and `bash test/perlenv_hook_test.sh` (covers
-  `perlenv_hook`).
+- No CI. There are three tests: `bash test/install_test.sh` (covers
+  `install.sh`), `bash test/perlenv_hook_test.sh` (covers `perlenv_hook`)
+  and `bash test/precommit_test.sh` (covers `git/hooks/pre-commit`).
 - Lint shell scripts with `shellcheck`, e.g.
   `shellcheck bashrc bash_profile bash_aliases perlenv_hook`. The files
   here carry no `.sh` extension, so pass them explicitly.
@@ -49,7 +49,10 @@ When editing it, preserve these behaviors:
   - `.t` → `prove -l`
   - `.json` → `json_pp`
   - `.sh` / bash → `shellcheck -S warning` (falls back to `bash -n` if
-    shellcheck is missing)
+    shellcheck is missing). An extensionless file counts as bash if line 1
+    is a `#!…bash` shebang or a `# shellcheck shell=bash` directive; the
+    sourced dotfiles here (`bashrc`, `bash_profile`, `bash_aliases`,
+    `perlenv_hook`) carry the directive so they get linted.
   - `.yml` / `.yaml` → `yamllint`
   - `.md` → `markdownlint` (MD013 80-col line length, per `markdownlint.json`
     which exempts code blocks)
