@@ -34,20 +34,6 @@ _perlenv_is_perl_repo() {
     return 1
 }
 
-# Echo the raw (trimmed) PERL_VERSION value from a .perlenv, rc 1 if none.
-_perlenv_parse_version() {
-    local f="$1" line val
-    [ -f "$f" ] || return 1
-    line=$(grep -E '^[[:space:]]*(export[[:space:]]+)?PERL_VERSION=' "$f" \
-        2>/dev/null | tail -1)
-    [ -n "$line" ] || return 1
-    val="${line#*=}"; val="${val%%#*}"
-    val="${val//\"/}"; val="${val//\'/}"
-    val="$(printf '%s' "$val" | tr -d '[:space:]')"
-    [ -n "$val" ] || return 1
-    printf '%s\n' "$val"
-}
-
 # Best-effort minimum perl version for a repo, as perl-5.MM.PP (or empty).
 # Scans: use VERSION in *.pm, and a perl prereq in cpanfile/Makefile.PL/
 # dist.ini. Highest floor wins. Best-effort, no guarantees.
@@ -120,7 +106,8 @@ _perlenv_allow_add() {
 }
 
 _perlenv_write_template() {
-    cat > "$1" <<'TEMPLATE'
+    # noclobber: never write through or over an existing file or symlink
+    ( set -C; cat > "$1" ) <<'TEMPLATE'
 # .perlenv - per-repo Perl environment, sourced by the pre-commit hook and
 # the perlenv cd hook.
 
@@ -139,10 +126,11 @@ perlenv-init() {
     local root pv
     root=$(git rev-parse --show-toplevel 2>/dev/null) || {
         echo "perlenv-init: not inside a git repo" >&2; return 1; }
-    if [ -e "$root/.perlenv" ]; then
+    if [ -e "$root/.perlenv" ] || [ -L "$root/.perlenv" ]; then
         echo "perlenv-init: $root/.perlenv already exists" >&2; return 1
     fi
-    _perlenv_write_template "$root/.perlenv"
+    _perlenv_write_template "$root/.perlenv" 2>/dev/null || {
+        echo "perlenv-init: could not create $root/.perlenv" >&2; return 1; }
     pv=$(_perlenv_detect_min_version "$root")
     if [ -n "$pv" ]; then
         printf 'export PERL_VERSION=%s\n' "$pv" >> "$root/.perlenv"
@@ -171,6 +159,12 @@ $1
 "*) return 0 ;; *) return 1 ;; esac
 }
 
+# Is perlbrew's shell function loaded? Only the function switches the
+# current shell; the bare binary's `use` would exec an interactive sub-shell.
+_perlenv_have_perlbrew() {
+    [ "$(type -t perlbrew 2>/dev/null)" = function ]
+}
+
 # Resolve a PERL_VERSION the way `perlbrew use` does (App::perlbrew's
 # resolve_installation_name): split off any @lib, try the perl name as
 # written, then perl-<name>. Echo the resolved name.
@@ -193,26 +187,36 @@ _perlenv_resolve_perl() {
 
 # snapshot env, source the .perlenv, switch perl
 _perlenv_apply() {
-    local root="$1" pe="$2" pv name rc
+    # The .perlenv is sourced inside this function, so it can assign to
+    # any local here: record the root before sourcing, and read nothing
+    # but globals and PERL_VERSION after it.
+    _PERLENV_ACTIVE_ROOT="$1"
     _PERLENV_SAVED_PERL5LIB="${PERL5LIB-}"
     _PERLENV_SAVED_PERL5LIB_SET="${PERL5LIB+1}"
     _PERLENV_SAVED_CARTON="${CARTON-}"
     _PERLENV_SAVED_CARTON_SET="${CARTON+1}"
+    _PERLENV_SAVED_PERL_VERSION="${PERL_VERSION-}"
+    _PERLENV_SAVED_PERL_VERSION_SET="${PERL_VERSION+1}"
+    # only the .perlenv may set PERL_VERSION, not the caller's environment
+    unset PERL_VERSION
     # allow_check-then-source has a tiny TOCTOU window (the file could
     # change between the hash check and this source); accepted as-is for
     # a single-user dotfiles repo.
     # shellcheck source=/dev/null
-    . "$pe"
-    _PERLENV_ACTIVE_ROOT="$root"
-    pv=$(_perlenv_parse_version "$pe") || return 0
+    . "$2"
+    local pv="${PERL_VERSION:-}" name rc
+    [ -n "$pv" ] || return 0
     # perlbrew absent? skip the switch quietly. install.sh's prereq check
     # already yells about installing perlbrew, so no second warning here.
-    command -v perlbrew >/dev/null 2>&1 || return 0
+    _perlenv_have_perlbrew || return 0
     name=$(_perlenv_resolve_perl "$pv"); rc=$?
     case $rc in
         0)
-            perlbrew use "$name" >/dev/null 2>&1
-            _PERLENV_SWITCHED=1 ;;
+            if perlbrew use "$name" >/dev/null 2>&1; then
+                _PERLENV_SWITCHED=1
+            else
+                printf '!!! perlenv: perlbrew use %s failed\n' "$name" >&2
+            fi ;;
         1)
             printf '!!! perlenv: .perlenv wants %s (not installed). To build it:\n' \
                 "$pv" >&2
@@ -236,10 +240,16 @@ _perlenv_revert() {
     else
         unset CARTON
     fi
+    if [ "${_PERLENV_SAVED_PERL_VERSION_SET:-}" = 1 ]; then
+        export PERL_VERSION="${_PERLENV_SAVED_PERL_VERSION:-}"
+    else
+        unset PERL_VERSION
+    fi
     unset _PERLENV_SAVED_PERL5LIB _PERLENV_SAVED_PERL5LIB_SET
     unset _PERLENV_SAVED_CARTON _PERLENV_SAVED_CARTON_SET
+    unset _PERLENV_SAVED_PERL_VERSION _PERLENV_SAVED_PERL_VERSION_SET
     _PERLENV_ACTIVE_ROOT=""
-    if [ "${_PERLENV_SWITCHED:-}" = 1 ] && command -v perlbrew >/dev/null 2>&1; then
+    if [ "${_PERLENV_SWITCHED:-}" = 1 ] && _perlenv_have_perlbrew; then
         if [ -n "${PERLENV_DEFAULT:-}" ]; then
             perlbrew use "$PERLENV_DEFAULT" >/dev/null 2>&1
         else
@@ -261,6 +271,9 @@ _perlenv_enter() {
         else
             _perlenv_decline "$pe"
         fi
+    elif [ -L "$pe" ]; then
+        # dangling symlink: never offer to create through it
+        printf '!!! perlenv: %s is a dangling symlink; ignoring it\n' "$pe" >&2
     elif _perlenv_is_perl_repo "$root"; then
         if ! _perlenv_declined "$root"; then
             if _perlenv_confirm "no .perlenv in Perl repo $root; create one?"; then
