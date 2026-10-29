@@ -4,7 +4,7 @@ if [ -f /etc/bashrc ]; then
 fi
 
 # perlbrew
-if [ -x ~/perl5/perlbrew/etc/bashrc ]; then
+if [ -r ~/perl5/perlbrew/etc/bashrc ]; then
 	    source ~/perl5/perlbrew/etc/bashrc
 fi
 
