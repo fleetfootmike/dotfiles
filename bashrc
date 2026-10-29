@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Source global definitions
 if [ -f /etc/bashrc ]; then
     . /etc/bashrc
@@ -5,11 +6,13 @@ fi
 
 # perlbrew
 if [ -r ~/perl5/perlbrew/etc/bashrc ]; then
+    # shellcheck source=/dev/null  # perlbrew's file, not in this repo
 	    source ~/perl5/perlbrew/etc/bashrc
 fi
 
 # source aliases
 if [ -f ~/.bash_aliases ]; then
+    # shellcheck source=bash_aliases
     . ~/.bash_aliases
 fi
 
@@ -45,7 +48,7 @@ export PERL_RL=Perl5
 # then automatically put us into a screen(1) session.   Only try once
 # -- if $STARTED_SCREEN is set, don't try it again, to avoid looping
 # if screen fails for some reason.
-if [ "$PS1" != "" -a "${STARTED_SCREEN:-x}" = x -a "${SSH_TTY:-x}" != x ] 
+if [ "$PS1" != "" ] && [ "${STARTED_SCREEN:-x}" = x ] && [ "${SSH_TTY:-x}" != x ]
 then
     STARTED_SCREEN=1 ; export STARTED_SCREEN
     screen -RR -S main || echo "Screen failed! continuing with normal bash startup"
@@ -54,5 +57,6 @@ fi
 
 # perlenv cd hook
 if [ -f ~/.perlenv_hook ]; then
+    # shellcheck source=perlenv_hook
     . ~/.perlenv_hook
 fi
