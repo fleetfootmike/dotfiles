@@ -31,7 +31,10 @@ parse_git_branch() {
     git branch 2> /dev/null  | awk '/^*/ { print (length($2) >20) ? " (" substr($2,0,17) "...)" : " (" $2 ")"}'
 }
 
-export PS1='\u@\[\033[32m\]\h \[\033[34m\]\w\[\033[36m\] <${PERLBREW_PERL:-system perl}>\[\033[31m\]$(parse_git_branch)\[\033[00m\] \$ '
+# Python venvs: no "(.venv) " prefix; a magenta bullet before the $
+# shows when one is active.
+export VIRTUAL_ENV_DISABLE_PROMPT=1
+export PS1='\u@\[\033[32m\]\h \[\033[34m\]\w\[\033[36m\] <${PERLBREW_PERL:-system perl}>\[\033[31m\]$(parse_git_branch)\[\033[00m\] ${VIRTUAL_ENV:+\[\033[35m\]●\[\033[00m\] }\$ '
 
 # determine which Term::Readline implementation to use
 export PERL_RL=Perl5
