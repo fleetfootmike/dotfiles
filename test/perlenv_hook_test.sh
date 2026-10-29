@@ -261,6 +261,7 @@ eq "$(cat "$PB")" perl-5.20.0 "leave: reverts to PERLENV_DEFAULT"
 PB=$(mktemp); store=$(mktemp -u); r=$(mkrepo); out=$(mktemp -d)
 printf 'export CARTON="carton exec "\nexport PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
 c=$( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes; export CARTON=orig
+     _perlenv_have_carton() { return 0; }
      cd "$r" && _perlenv_chpwd
      cd "$out" && _perlenv_chpwd; printf '%s' "${CARTON:-<unset>}" )
 eq "$c" orig "leave: CARTON restored"
@@ -355,6 +356,33 @@ store=$(mktemp -u)
 ( export PERLENV_ALLOW_FILE="$store" PERLENV_ASSUME=yes
   cd "$r" && _perlenv_chpwd >/dev/null 2>&1 )
 [ ! -e "$d/victim" ]; check "S8: cd hook does not create the symlink target" $?
+
+# --- carton reminder: a .perlenv that sets CARTON needs carton on its perl ---
+carton_msg() {  # $1 = PERL_VERSION, $2 = 1 if carton present
+    local r s m; PB=$(mktemp); s=$(mktemp -u); r=$(mkrepo)
+    printf 'export CARTON="carton exec "\nexport PERL_VERSION=%s\n' "$1" \
+        > "$r/.perlenv"
+    m=$( export PERLENV_ALLOW_FILE="$s" PERLENV_ASSUME=yes HAVE_CARTON="$2"
+         _perlenv_have_carton() { [ "$HAVE_CARTON" = 1 ]; }
+         cd "$r" && _perlenv_chpwd 2>&1 >/dev/null )
+    printf '%s' "$m"
+}
+msg=$(carton_msg perl-5.36.0 0)
+case "$msg" in *"cpanm Carton"*) rc=0 ;; *) rc=1 ;; esac
+check "carton: switched perl without carton says cpanm Carton" $rc
+msg=$(carton_msg perl-5.36.0 1)
+[ -z "$msg" ]; check "carton: switched perl with carton stays quiet" $?
+msg=$(carton_msg 5.99.0 1)
+case "$msg" in *"perlbrew exec --with perl-5.99.0 cpanm Carton"*) rc=0 ;;
+    *) rc=1 ;; esac
+check "carton: uninstalled hint adds cpanm Carton for the new perl" $rc
+msg=$( PB=$(mktemp); s=$(mktemp -u); r=$(mkrepo)
+       printf 'export PERL_VERSION=perl-5.36.0\n' > "$r/.perlenv"
+       export PERLENV_ALLOW_FILE="$s" PERLENV_ASSUME=yes; unset CARTON
+       _perlenv_have_carton() { return 1; }
+       cd "$r" && _perlenv_chpwd 2>&1 >/dev/null )
+case "$msg" in *Carton*) rc=1 ;; *) rc=0 ;; esac
+check "carton: no CARTON in .perlenv, no reminder" $rc
 
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

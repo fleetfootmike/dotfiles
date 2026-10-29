@@ -165,6 +165,11 @@ _perlenv_have_perlbrew() {
     [ "$(type -t perlbrew 2>/dev/null)" = function ]
 }
 
+# carton on PATH? (each perlbrew perl needs its own; a test seam too)
+_perlenv_have_carton() {
+    command -v carton >/dev/null 2>&1
+}
+
 # Resolve a PERL_VERSION the way `perlbrew use` does (App::perlbrew's
 # resolve_installation_name): split off any @lib, try the perl name as
 # written, then perl-<name>. Echo the resolved name.
@@ -214,6 +219,11 @@ _perlenv_apply() {
         0)
             if perlbrew use "$name" >/dev/null 2>&1; then
                 _PERLENV_SWITCHED=1
+                if [ -n "${CARTON:-}" ] && ! _perlenv_have_carton; then
+                    printf '!!! perlenv: .perlenv uses carton, but %s has none. To install it:\n' \
+                        "$name" >&2
+                    printf '      cpanm Carton\n' >&2
+                fi
             else
                 printf '!!! perlenv: perlbrew use %s failed\n' "$name" >&2
             fi ;;
@@ -221,7 +231,10 @@ _perlenv_apply() {
             printf '!!! perlenv: .perlenv wants %s (not installed). To build it:\n' \
                 "$pv" >&2
             case "$pv" in perl-*) ;; *) pv="perl-$pv" ;; esac
-            printf '      perlbrew install %s\n' "$pv" >&2 ;;
+            printf '      perlbrew install %s\n' "$pv" >&2
+            if [ -n "${CARTON:-}" ]; then
+                printf '      perlbrew exec --with %s cpanm Carton\n' "$pv" >&2
+            fi ;;
         *)
             printf '!!! perlenv: perlbrew list failed; not switching to %s\n' \
                 "$pv" >&2 ;;
