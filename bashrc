@@ -28,7 +28,7 @@ fi
 unset TMOUT
 
 parse_git_branch() {
-    git branch 2> /dev/null  | awk '/^*/ { print (length($2) >20) ? " (" substr($2,0,17) "...)" : " (" $2 ")"}'
+    git branch 2> /dev/null  | awk '/^\*/ { print (length($2) >20) ? " (" substr($2,0,17) "...)" : " (" $2 ")"}'
 }
 
 # Python venvs: no "(.venv) " prefix; a magenta bullet before the $
