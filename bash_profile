@@ -3,7 +3,7 @@ export BASH_SILENCE_DEPRECATION_WARNING=1 # macOS: no "default shell is now zsh"
 
 export PAGER=more # less can DIAF.
 export PATH="$HOME/bin:$PATH"
-if [ -x ~/perl5/perlbrew/etc/bashrc ]; then
+if [ -r ~/perl5/perlbrew/etc/bashrc ]; then
     source ~/perl5/perlbrew/etc/bashrc
 fi
 
